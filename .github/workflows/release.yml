@@ -13,6 +13,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,16 +33,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Prepare release assets
-        run: npm run release
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts
           path: |
             .scaffold/build/*.xpi
-            .scaffold/build/*.json
+            .scaffold/build/update*.json
 
   create-release:
     needs: build
