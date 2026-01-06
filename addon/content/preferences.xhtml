@@ -5,25 +5,116 @@
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window })"
 >
   <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
-  <checkbox
-    id="zotero-prefpane-__addonRef__-enable"
-    preference="enable"
-    data-l10n-id="pref-enable"
-  />
-  <hbox>
+
+  <!-- S3 Configuration Section -->
+  <label><html:h3 data-l10n-id="pref-s3-title"></html:h3></label>
+
+  <hbox align="center">
     <html:label
-      for="zotero-prefpane-__addonRef__-input"
-      data-l10n-id="pref-input"
+      for="zotero-prefpane-__addonRef__-s3-endpoint"
+      data-l10n-id="pref-s3-endpoint"
+      style="min-width: 150px;"
     ></html:label>
     <html:input
       type="text"
-      id="zotero-prefpane-__addonRef__-input"
-      preference="input"
+      id="zotero-prefpane-__addonRef__-s3-endpoint"
+      preference="s3.endpoint"
+      style="flex: 1;"
+      placeholder="https://s3.amazonaws.com"
     ></html:input>
   </hbox>
-  <hbox class="virtualized-table-container" flex="1" height="300px">
-    <html:div id="__addonRef__-table-container" />
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-s3-region"
+      data-l10n-id="pref-s3-region"
+      style="min-width: 150px;"
+    ></html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-s3-region"
+      preference="s3.region"
+      style="flex: 1;"
+      placeholder="us-east-1"
+    ></html:input>
   </hbox>
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-s3-bucketName"
+      data-l10n-id="pref-s3-bucket"
+      style="min-width: 150px;"
+    ></html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-s3-bucketName"
+      preference="s3.bucketName"
+      style="flex: 1;"
+      placeholder="my-zotero-bucket"
+    ></html:input>
+  </hbox>
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-s3-accessKeyId"
+      data-l10n-id="pref-s3-access-key"
+      style="min-width: 150px;"
+    ></html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-s3-accessKeyId"
+      preference="s3.accessKeyId"
+      style="flex: 1;"
+      placeholder="Access Key ID"
+    ></html:input>
+  </hbox>
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-s3-secretAccessKey"
+      data-l10n-id="pref-s3-secret-key"
+      style="min-width: 150px;"
+    ></html:label>
+    <html:input
+      type="password"
+      id="zotero-prefpane-__addonRef__-s3-secretAccessKey"
+      preference="s3.secretAccessKey"
+      style="flex: 1;"
+      placeholder="Secret Access Key"
+    ></html:input>
+  </hbox>
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-s3-prefix"
+      data-l10n-id="pref-s3-prefix"
+      style="min-width: 150px;"
+    ></html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-s3-prefix"
+      preference="s3.prefix"
+      style="flex: 1;"
+      placeholder="zotero-attachments"
+    ></html:input>
+  </hbox>
+
+  <hbox>
+    <button
+      id="zotero-prefpane-__addonRef__-test-connection"
+      data-l10n-id="pref-test-connection"
+      oncommand="Zotero.__addonInstance__.hooks.onPrefsEvent('testConnection', { window })"
+    />
+  </hbox>
+
+  <!-- Sync Settings Section -->
+  <label><html:h3 data-l10n-id="pref-sync-title"></html:h3></label>
+
+  <checkbox
+    id="zotero-prefpane-__addonRef__-auto-sync"
+    preference="sync.autoSync"
+    data-l10n-id="pref-auto-sync"
+  />
 </groupbox>
 <vbox>
   <html:label

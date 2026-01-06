@@ -1,10 +1,10 @@
-startup-begin = 插件加载中
-startup-finish = 插件已就绪
-menuitem-label = 插件模板: 帮助工具样例
-menupopup-label = 插件模板: 弹出菜单
-menuitem-submenulabel = 插件模板：子菜单
-menuitem-filemenulabel = 插件模板: 文件菜单
-prefs-title = 插件模板
+startup-begin = S3 同步插件加载中
+startup-finish = S3 同步插件已就绪
+menuitem-label = S3 同步: 帮助工具样例
+menupopup-label = S3 同步: 弹出菜单
+menuitem-submenulabel = S3 同步：子菜单
+menuitem-filemenulabel = S3 同步: 文件菜单
+prefs-title = S3 同步
 prefs-table-title = 标题
 prefs-table-detail = 详情
 tabpanel-lib-tab-label = 库标签

@@ -1,10 +1,10 @@
-startup-begin = Addon is loading
-startup-finish = Addon is ready
-menuitem-label = Addon Template: Helper Examples
-menupopup-label = Addon Template: Menupopup
-menuitem-submenulabel = Addon Template
-menuitem-filemenulabel = Addon Template: File Menuitem
-prefs-title = Template
+startup-begin = S3 Sync is loading
+startup-finish = S3 Sync is ready
+menuitem-label = S3 Sync: Helper Examples
+menupopup-label = S3 Sync: Menupopup
+menuitem-submenulabel = S3 Sync
+menuitem-filemenulabel = S3 Sync: File Menuitem
+prefs-title = S3 Sync
 prefs-table-title = Title
 prefs-table-detail = Detail
 tabpanel-lib-tab-label = Lib Tab

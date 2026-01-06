@@ -1,3 +1,6 @@
+menuitem-sync-s3 = Sync to S3
+menuitem-s3-settings = S3 Sync Settings
+
 item-section-example1-head-text =
     .label = Plugin Template: Item Info
 item-section-example1-sidenav-tooltip =

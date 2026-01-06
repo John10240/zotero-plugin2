@@ -1,3 +1,6 @@
+menuitem-sync-s3 = 同步到 S3
+menuitem-s3-settings = S3 同步设置
+
 item-section-example1-head-text =
     .label = 插件模板: 条目信息
 item-section-example1-sidenav-tooltip =

@@ -9,6 +9,14 @@ declare namespace _ZoteroTypes {
     PluginPrefsMap: {
       "enable": boolean;
       "input": string;
+      "s3.endpoint": string;
+      "s3.region": string;
+      "s3.accessKeyId": string;
+      "s3.secretAccessKey": string;
+      "s3.bucketName": string;
+      "s3.prefix": string;
+      "sync.autoSync": boolean;
+      "sync.syncInterval": number;
     };
   }
 }

@@ -2,6 +2,7 @@ import { config } from "../package.json";
 import { ColumnOptions, DialogHelper } from "zotero-plugin-toolkit";
 import hooks from "./hooks";
 import { createZToolkit } from "./utils/ztoolkit";
+import type { SyncManager } from "./modules/syncManager";
 
 class Addon {
   public data: {
@@ -16,10 +17,16 @@ class Addon {
     };
     prefs?: {
       window: Window;
-      columns: Array<ColumnOptions>;
-      rows: Array<{ [dataKey: string]: string }>;
+      columns?: Array<ColumnOptions>;
+      rows?: Array<{ [dataKey: string]: string }>;
     };
     dialog?: DialogHelper;
+    syncManager?: SyncManager;
+    syncStatus?: {
+      isSyncing: boolean;
+      currentFile?: string;
+      progress?: number;
+    };
   };
   // Lifecycle hooks
   public hooks: typeof hooks;
