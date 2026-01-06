@@ -16,6 +16,7 @@
    找到并删除 `s3sync@zotero.plugin.xpi` 或相关文件
 
 3. **重新构建插件**：
+
    ```bash
    cd zotero-plugin2
    npm run build
@@ -40,13 +41,13 @@
 ```javascript
 // 手动注册偏好面板
 Zotero.PreferencePanes.register({
-  pluginID: 's3sync@zotero.plugin',
-  src: 'chrome://s3sync/content/preferences.xhtml',
-  label: 'S3 Sync Settings',
-  image: 'chrome://s3sync/content/icons/favicon.png'
+  pluginID: "s3sync@zotero.plugin",
+  src: "chrome://s3sync/content/preferences.xhtml",
+  label: "S3 Sync Settings",
+  image: "chrome://s3sync/content/icons/favicon.png",
 });
 
-console.log('Preference pane registered manually');
+console.log("Preference pane registered manually");
 
 // 打开偏好设置窗口
 Zotero.Prefs.openPreferences();
@@ -59,8 +60,8 @@ Zotero.Prefs.openPreferences();
 运行以下命令查看 Zotero 版本：
 
 ```javascript
-console.log('Zotero version:', Zotero.version);
-console.log('Zotero platform:', Zotero.platform);
+console.log("Zotero version:", Zotero.version);
+console.log("Zotero platform:", Zotero.platform);
 ```
 
 确保是 Zotero 7.0.0 或更高版本。如果是 Zotero 6，偏好设置的注册方式不同。
@@ -81,6 +82,7 @@ npm start
 请尝试**方案 1**（完全清理重装），这通常能解决大部分问题。
 
 如果还是不行，请：
+
 1. 打开 Zotero 开发者控制台
 2. 运行 `console.log('Plugin:', Zotero.S3Sync)`
 3. 运行 `console.log('Panes:', Object.keys(Zotero.PreferencePanes._panes || {}))`

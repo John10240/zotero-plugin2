@@ -11,6 +11,7 @@ npm run build
 ```
 
 然后：
+
 1. 打开 Zotero
 2. 工具 -> 插件
 3. 找到 "Zotero S3 Sync" 或任何旧的插件，**点击删除**（不是禁用）
@@ -26,28 +27,30 @@ npm run build
 
 ```javascript
 // 检查插件是否加载
-console.log("Plugin loaded:", typeof Zotero.S3Sync !== 'undefined');
+console.log("Plugin loaded:", typeof Zotero.S3Sync !== "undefined");
 
 // 检查插件 ID
 console.log("Plugin ID:", Zotero.S3Sync?.data?.config?.addonID);
 
 // 列出所有已注册的偏好面板
-console.log("Registered preference panes:",
-  Zotero.PreferencePanes._panes ?
-  Object.keys(Zotero.PreferencePanes._panes) :
-  "No panes registered"
+console.log(
+  "Registered preference panes:",
+  Zotero.PreferencePanes._panes
+    ? Object.keys(Zotero.PreferencePanes._panes)
+    : "No panes registered",
 );
 
 // 检查我们的偏好面板是否注册
-console.log("S3Sync pane registered:",
-  Zotero.PreferencePanes._panes?.['s3sync@zotero.plugin']
+console.log(
+  "S3Sync pane registered:",
+  Zotero.PreferencePanes._panes?.["s3sync@zotero.plugin"],
 );
 
 // 查看所有 S3 相关的偏好设置
 console.log("S3 Prefs:", {
-  endpoint: Zotero.Prefs.get('extensions.zotero.s3sync.s3.endpoint'),
-  region: Zotero.Prefs.get('extensions.zotero.s3sync.s3.region'),
-  bucket: Zotero.Prefs.get('extensions.zotero.s3sync.s3.bucketName')
+  endpoint: Zotero.Prefs.get("extensions.zotero.s3sync.s3.endpoint"),
+  region: Zotero.Prefs.get("extensions.zotero.s3sync.s3.region"),
+  bucket: Zotero.Prefs.get("extensions.zotero.s3sync.s3.bucketName"),
 });
 ```
 
@@ -70,6 +73,7 @@ cat manifest.json
 ```
 
 确认输出中包含：
+
 ```json
 "preferences": [
   {
@@ -90,6 +94,7 @@ cat manifest.json
 4. 重启 Zotero 并观察日志
 
 查找包含以下关键词的错误：
+
 - `s3sync`
 - `preference`
 - `S3Sync`
@@ -102,9 +107,9 @@ cat manifest.json
 ```javascript
 // 直接打开 S3 Sync 偏好设置
 window.openDialog(
-  'chrome://s3sync/content/preferences.xhtml',
-  'preferences',
-  'chrome,titlebar,toolbar,centerscreen,dialog=no'
+  "chrome://s3sync/content/preferences.xhtml",
+  "preferences",
+  "chrome,titlebar,toolbar,centerscreen,dialog=no",
 );
 ```
 
@@ -117,10 +122,10 @@ window.openDialog(
 ```javascript
 // 手动注册偏好面板
 Zotero.PreferencePanes.register({
-  pluginID: 's3sync@zotero.plugin',
-  src: 'chrome://s3sync/content/preferences.xhtml',
-  label: 'S3 Sync',
-  image: 'chrome://s3sync/content/icons/favicon.png'
+  pluginID: "s3sync@zotero.plugin",
+  src: "chrome://s3sync/content/preferences.xhtml",
+  label: "S3 Sync",
+  image: "chrome://s3sync/content/icons/favicon.png",
 });
 
 // 然后打开偏好设置
@@ -130,20 +135,24 @@ Zotero.Prefs.openPreferences();
 ### 常见问题
 
 #### 问题 A: 插件列表中看不到插件
+
 **原因**: 插件没有正确安装或被禁用
 **解决**: 完全删除后重新安装
 
 #### 问题 B: 插件加载了但没有偏好设置
+
 **原因**: manifest.json 中的 preferences 配置可能在运行时没有被 Zotero 识别
 **解决**: 使用上面的 "手动注册偏好面板" 方法
 
 #### 问题 C: Zotero.S3Sync 是 undefined
+
 **原因**: 插件主代码没有正确加载
 **解决**: 检查 hooks.ts 中的 onStartup() 是否正确执行
 
 ### 如果以上都不行
 
 请提供以下信息：
+
 1. Zotero 版本号（帮助 -> 关于 Zotero）
 2. 开发者控制台的输出截图
 3. 调试日志的相关部分

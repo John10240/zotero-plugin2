@@ -4,20 +4,20 @@
  */
 
 export interface FileMetadata {
-  hash: string;              // MD5 hash of file content
-  localMtime: number;        // Local modification time (ms)
-  remoteMtime: number;       // Remote modification time (ms)
-  lastSyncTime: number;      // Last sync timestamp (ms)
-  lastSyncHash: string;      // Hash at last sync
-  size: number;              // File size in bytes
+  hash: string; // MD5 hash of file content
+  localMtime: number; // Local modification time (ms)
+  remoteMtime: number; // Remote modification time (ms)
+  lastSyncTime: number; // Last sync timestamp (ms)
+  lastSyncHash: string; // Hash at last sync
+  size: number; // File size in bytes
 }
 
 export interface SyncMetadataStore {
   files: {
     [attachmentKey: string]: FileMetadata;
   };
-  lastFullSync: number;      // Last full sync timestamp
-  version: number;           // Metadata format version
+  lastFullSync: number; // Last full sync timestamp
+  version: number; // Metadata format version
 }
 
 export class SyncMetadataManager {
@@ -34,7 +34,10 @@ export class SyncMetadataManager {
    */
   private loadMetadata(): SyncMetadataStore {
     try {
-      const stored = Zotero.Prefs.get(`extensions.zotero.s3sync.${SyncMetadataManager.METADATA_KEY}`, true) as string;
+      const stored = Zotero.Prefs.get(
+        `extensions.zotero.s3sync.${SyncMetadataManager.METADATA_KEY}`,
+        true,
+      ) as string;
 
       if (stored) {
         const parsed = JSON.parse(stored) as SyncMetadataStore;
@@ -64,7 +67,11 @@ export class SyncMetadataManager {
   private saveMetadata(): void {
     try {
       const serialized = JSON.stringify(this.metadata);
-      Zotero.Prefs.set(`extensions.zotero.s3sync.${SyncMetadataManager.METADATA_KEY}`, serialized, true);
+      Zotero.Prefs.set(
+        `extensions.zotero.s3sync.${SyncMetadataManager.METADATA_KEY}`,
+        serialized,
+        true,
+      );
     } catch (error) {
       ztoolkit.log("Error saving metadata:", error);
     }
@@ -80,7 +87,10 @@ export class SyncMetadataManager {
   /**
    * Update metadata for a file
    */
-  public updateFileMetadata(attachmentKey: string, metadata: Partial<FileMetadata>): void {
+  public updateFileMetadata(
+    attachmentKey: string,
+    metadata: Partial<FileMetadata>,
+  ): void {
     const existing = this.metadata.files[attachmentKey] || {
       hash: "",
       localMtime: 0,
@@ -101,7 +111,13 @@ export class SyncMetadataManager {
   /**
    * Record successful sync for a file
    */
-  public recordSync(attachmentKey: string, hash: string, localMtime: number, remoteMtime: number, size: number): void {
+  public recordSync(
+    attachmentKey: string,
+    hash: string,
+    localMtime: number,
+    remoteMtime: number,
+    size: number,
+  ): void {
     const now = Date.now();
 
     this.metadata.files[attachmentKey] = {
@@ -175,7 +191,7 @@ export class SyncMetadataManager {
     newestSync: number;
   } {
     const files = Object.values(this.metadata.files);
-    const syncTimes = files.map(f => f.lastSyncTime).filter(t => t > 0);
+    const syncTimes = files.map((f) => f.lastSyncTime).filter((t) => t > 0);
 
     return {
       totalFiles: files.length,

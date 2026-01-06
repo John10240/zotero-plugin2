@@ -3,6 +3,12 @@
 import zotero from "@zotero-plugin/eslint-config";
 
 export default zotero({
+  ignores: [
+    // Debug and helper scripts that run in Zotero environment
+    "check-plugin.js",
+    "debug-load.js",
+    "manual-load.js",
+  ],
   overrides: [
     {
       files: ["**/*.ts"],

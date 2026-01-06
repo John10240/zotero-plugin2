@@ -7,12 +7,12 @@ const basicTool = new BasicTool();
 // Access the loadSubScript context
 // When loadSubScript is called with a context object, that object becomes available
 // We need to check if _globalThis is defined in the context
-declare var _globalThis: any;
+declare let _globalThis: any;
 
 // Helper to get the global context
 function getGlobalContext() {
   // If _globalThis is defined (by bootstrap.js), use it
-  if (typeof _globalThis !== 'undefined') {
+  if (typeof _globalThis !== "undefined") {
     return _globalThis;
   }
   // Otherwise, return a dummy object (this shouldn't happen in normal execution)

@@ -7,6 +7,7 @@
 1. **更新版本号**
 
    编辑 `package.json`，更新 `version` 字段：
+
    ```json
    {
      "version": "0.1.1"
@@ -14,6 +15,7 @@
    ```
 
 2. **提交更改**
+
    ```bash
    git add package.json
    git commit -m "chore: bump version to 0.1.1"
@@ -21,6 +23,7 @@
    ```
 
 3. **创建并推送 tag**
+
    ```bash
    # 创建 tag（tag 名称必须以 v 开头）
    git tag v0.1.1
@@ -54,6 +57,7 @@
 ```
 
 ### Type 类型
+
 - `feat`: 新功能
 - `fix`: 修复 bug
 - `docs`: 文档更新
@@ -64,6 +68,7 @@
 - `chore`: 构建或辅助工具变动
 
 ### 示例
+
 ```bash
 git commit -m "feat: 实现三向合并同步引擎"
 git commit -m "fix(s3): 修复文件上传失败的问题"
@@ -99,6 +104,7 @@ git push origin v0.1.1-beta.1
 ### Q: Changelog 内容不符合预期？
 
 Changelog 是基于 commit 历史自动生成的。要改善 Changelog 质量：
+
 - 使用规范的 commit message
 - 在 commit message 中提供清晰的描述
 - 考虑手动编辑 Release notes
@@ -113,6 +119,7 @@ Changelog 是基于 commit 历史自动生成的。要改善 Changelog 质量：
 - PATCH: 向后兼容的 bug 修复
 
 示例：
+
 - `0.1.0` → `0.1.1` (bug 修复)
 - `0.1.0` → `0.2.0` (新功能)
 - `0.9.0` → `1.0.0` (首个稳定版)

@@ -187,10 +187,20 @@ function registerS3SyncButton(win: _ZoteroTypes.MainWindow) {
     const syncButton = doc.querySelector("#zotero-tb-sync");
     if (syncButton) {
       ztoolkit.log("Found official sync button");
-      ztoolkit.log("Sync button parent:", syncButton.parentElement?.tagName, syncButton.parentElement?.id);
-      ztoolkit.log("Sync button parent's parent:", syncButton.parentElement?.parentElement?.tagName, syncButton.parentElement?.parentElement?.id);
+      ztoolkit.log(
+        "Sync button parent:",
+        syncButton.parentElement?.tagName,
+        syncButton.parentElement?.id,
+      );
+      ztoolkit.log(
+        "Sync button parent's parent:",
+        syncButton.parentElement?.parentElement?.tagName,
+        syncButton.parentElement?.parentElement?.id,
+      );
     } else {
-      ztoolkit.log("Official sync button not found with selector #zotero-tb-sync");
+      ztoolkit.log(
+        "Official sync button not found with selector #zotero-tb-sync",
+      );
     }
 
     // Create toolbar button using createXULElement
@@ -199,19 +209,28 @@ function registerS3SyncButton(win: _ZoteroTypes.MainWindow) {
     button.setAttribute("class", "zotero-tb-button");
     button.setAttribute("tooltiptext", "S3 云同步");
     // Use plugin's own icon
-    button.setAttribute("style", `list-style-image: url('chrome://${config.addonRef}/content/icons/favicon.png')`);
+    button.setAttribute(
+      "style",
+      `list-style-image: url('chrome://${config.addonRef}/content/icons/favicon.png')`,
+    );
 
     button.addEventListener("command", async () => {
       if (addon.data.syncManager) {
         button.setAttribute("tooltiptext", "S3 同步中...");
         button.setAttribute("disabled", "true");
-        button.setAttribute("style", "list-style-image: url('chrome://zotero/skin/spinner-16px.png')");
+        button.setAttribute(
+          "style",
+          "list-style-image: url('chrome://zotero/skin/spinner-16px.png')",
+        );
 
         await addon.data.syncManager.syncAttachments();
 
         button.setAttribute("tooltiptext", "S3 云同步");
         button.removeAttribute("disabled");
-        button.setAttribute("style", `list-style-image: url('chrome://${config.addonRef}/content/icons/favicon.png')`);
+        button.setAttribute(
+          "style",
+          `list-style-image: url('chrome://${config.addonRef}/content/icons/favicon.png')`,
+        );
       }
     });
 
@@ -223,7 +242,7 @@ function registerS3SyncButton(win: _ZoteroTypes.MainWindow) {
       "toolbar[id='zotero-toolbar']",
       "#zotero-collections-toolbar",
       "#zotero-items-pane-content toolbar",
-      "toolbar"
+      "toolbar",
     ];
 
     let toolbar = null;

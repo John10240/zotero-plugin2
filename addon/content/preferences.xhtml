@@ -13,13 +13,13 @@
     <html:label
       for="zotero-prefpane-__addonRef__-s3-endpoint"
       data-l10n-id="pref-s3-endpoint"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <html:input
       type="text"
       id="zotero-prefpane-__addonRef__-s3-endpoint"
       preference="s3.endpoint"
-      style="flex: 1;"
+      style="flex: 1"
       placeholder="https://s3.amazonaws.com"
     ></html:input>
   </hbox>
@@ -28,13 +28,13 @@
     <html:label
       for="zotero-prefpane-__addonRef__-s3-region"
       data-l10n-id="pref-s3-region"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <html:input
       type="text"
       id="zotero-prefpane-__addonRef__-s3-region"
       preference="s3.region"
-      style="flex: 1;"
+      style="flex: 1"
       placeholder="us-east-1"
     ></html:input>
   </hbox>
@@ -43,13 +43,13 @@
     <html:label
       for="zotero-prefpane-__addonRef__-s3-bucketName"
       data-l10n-id="pref-s3-bucket"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <html:input
       type="text"
       id="zotero-prefpane-__addonRef__-s3-bucketName"
       preference="s3.bucketName"
-      style="flex: 1;"
+      style="flex: 1"
       placeholder="my-zotero-bucket"
     ></html:input>
   </hbox>
@@ -58,13 +58,13 @@
     <html:label
       for="zotero-prefpane-__addonRef__-s3-accessKeyId"
       data-l10n-id="pref-s3-access-key"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <html:input
       type="text"
       id="zotero-prefpane-__addonRef__-s3-accessKeyId"
       preference="s3.accessKeyId"
-      style="flex: 1;"
+      style="flex: 1"
       placeholder="Access Key ID"
     ></html:input>
   </hbox>
@@ -73,13 +73,13 @@
     <html:label
       for="zotero-prefpane-__addonRef__-s3-secretAccessKey"
       data-l10n-id="pref-s3-secret-key"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <html:input
       type="password"
       id="zotero-prefpane-__addonRef__-s3-secretAccessKey"
       preference="s3.secretAccessKey"
-      style="flex: 1;"
+      style="flex: 1"
       placeholder="Secret Access Key"
     ></html:input>
   </hbox>
@@ -88,13 +88,13 @@
     <html:label
       for="zotero-prefpane-__addonRef__-s3-prefix"
       data-l10n-id="pref-s3-prefix"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <html:input
       type="text"
       id="zotero-prefpane-__addonRef__-s3-prefix"
       preference="s3.prefix"
-      style="flex: 1;"
+      style="flex: 1"
       placeholder="zotero-attachments"
     ></html:input>
   </hbox>
@@ -103,7 +103,11 @@
     <button
       id="zotero-prefpane-__addonRef__-test-connection"
       data-l10n-id="pref-test-connection"
-      oncommand="Zotero.__addonInstance__.hooks.onPrefsEvent('testConnection', { window })"
+      oncommand="
+        Zotero.__addonInstance__.hooks.onPrefsEvent('testConnection', {
+          window,
+        })
+      "
     />
   </hbox>
 
@@ -120,18 +124,18 @@
     <html:label
       for="zotero-prefpane-__addonRef__-conflict-resolution"
       data-l10n-id="pref-conflict-resolution"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <menulist
       id="zotero-prefpane-__addonRef__-conflict-resolution"
       preference="conflictResolution"
-      style="flex: 1;"
+      style="flex: 1"
     >
       <menupopup>
-        <menuitem label="Ask me (询问我)" value="ask"/>
-        <menuitem label="Newer wins (较新者优先)" value="newer-wins"/>
-        <menuitem label="Local wins (本地优先)" value="local-wins"/>
-        <menuitem label="Remote wins (远程优先)" value="remote-wins"/>
+        <menuitem label="Ask me (询问我)" value="ask" />
+        <menuitem label="Newer wins (较新者优先)" value="newer-wins" />
+        <menuitem label="Local wins (本地优先)" value="local-wins" />
+        <menuitem label="Remote wins (远程优先)" value="remote-wins" />
       </menupopup>
     </menulist>
   </hbox>
@@ -146,7 +150,7 @@
     <html:label
       for="zotero-prefpane-__addonRef__-incremental-max-days"
       data-l10n-id="pref-incremental-max-days"
-      style="min-width: 150px;"
+      style="min-width: 150px"
     ></html:label>
     <html:input
       type="number"
@@ -154,9 +158,9 @@
       preference="sync.incrementalMaxDays"
       min="1"
       max="30"
-      style="width: 80px;"
+      style="width: 80px"
     ></html:input>
-    <html:label style="margin-left: 5px;">days (天)</html:label>
+    <html:label style="margin-left: 5px">days (天)</html:label>
   </hbox>
 </groupbox>
 <vbox>

@@ -3,6 +3,7 @@
 ## 问题诊断
 
 从控制台输出可以看到：
+
 - `Zotero.S3Sync` 是 `undefined` - **插件没有加载**
 - 手动注册偏好面板可以打开设置界面
 - 但是因为插件代码没加载，所以按钮点击没有反应
@@ -64,7 +65,7 @@ ls -lh .scaffold/build/zotero-s-3-sync.xpi
 
 ```javascript
 // 获取插件路径（替换为你的实际路径）
-const addonPath = 'file:///E:/git/zotero-plugin2/.scaffold/build/addon/';
+const addonPath = "file:///E:/git/zotero-plugin2/.scaffold/build/addon/";
 
 // 创建上下文
 const ctx = { rootURI: addonPath };
@@ -73,18 +74,18 @@ ctx._globalThis = ctx;
 // 手动加载插件脚本
 try {
   Services.scriptloader.loadSubScript(
-    addonPath + 'content/scripts/s3sync.js',
-    ctx
+    addonPath + "content/scripts/s3sync.js",
+    ctx,
   );
-  console.log('Script loaded, checking Zotero.S3Sync:', Zotero.S3Sync);
+  console.log("Script loaded, checking Zotero.S3Sync:", Zotero.S3Sync);
 
   // 如果成功加载，初始化插件
   if (Zotero.S3Sync) {
     await Zotero.S3Sync.hooks.onStartup();
-    console.log('Plugin initialized!');
+    console.log("Plugin initialized!");
   }
 } catch (e) {
-  console.error('Failed to load plugin:', e);
+  console.error("Failed to load plugin:", e);
 }
 ```
 
@@ -102,6 +103,7 @@ cp .env.example .env
 2. **编辑 `.env` 文件**，设置你的 Zotero 路径：
 
 Windows:
+
 ```env
 ZOTERO_PLUGIN_ZOTERO_BIN_PATH=C:\Program Files\Zotero\zotero.exe
 ZOTERO_PLUGIN_PROFILE_PATH=C:\Users\YC\Zotero
@@ -124,6 +126,7 @@ npm start
 3. 查找包含 `s3sync` 或 `S3Sync` 的错误信息
 
 常见错误：
+
 - `NS_ERROR_FILE_NOT_FOUND` - 文件路径错误
 - `SyntaxError` - JavaScript 语法错误
 - `ReferenceError` - 引用了未定义的变量
@@ -137,32 +140,38 @@ npm start
 const testPlugin = async () => {
   // 检查 AWS SDK 是否可用
   try {
-    const { S3Client } = await import('chrome://zotero/content/scripts/s3sync.js');
-    console.log('S3Client loaded');
+    const { S3Client } =
+      await import("chrome://zotero/content/scripts/s3sync.js");
+    console.log("S3Client loaded");
   } catch (e) {
-    console.error('Failed to load S3Client:', e);
+    console.error("Failed to load S3Client:", e);
   }
 
   // 测试 S3 连接（使用你的配置）
-  const endpoint = prompt('Enter S3 endpoint (e.g., https://s3.amazonaws.com):');
-  const region = prompt('Enter region (e.g., us-east-1):');
-  const accessKeyId = prompt('Enter Access Key ID:');
-  const secretAccessKey = prompt('Enter Secret Access Key:');
-  const bucketName = prompt('Enter bucket name:');
+  const endpoint = prompt(
+    "Enter S3 endpoint (e.g., https://s3.amazonaws.com):",
+  );
+  const region = prompt("Enter region (e.g., us-east-1):");
+  const accessKeyId = prompt("Enter Access Key ID:");
+  const secretAccessKey = prompt("Enter Secret Access Key:");
+  const bucketName = prompt("Enter bucket name:");
 
   if (!endpoint || !region || !accessKeyId || !secretAccessKey || !bucketName) {
-    console.log('Test cancelled - missing configuration');
+    console.log("Test cancelled - missing configuration");
     return;
   }
 
   // 保存配置到 Zotero 偏好设置
-  Zotero.Prefs.set('extensions.zotero.s3sync.s3.endpoint', endpoint);
-  Zotero.Prefs.set('extensions.zotero.s3sync.s3.region', region);
-  Zotero.Prefs.set('extensions.zotero.s3sync.s3.accessKeyId', accessKeyId);
-  Zotero.Prefs.set('extensions.zotero.s3sync.s3.secretAccessKey', secretAccessKey);
-  Zotero.Prefs.set('extensions.zotero.s3sync.s3.bucketName', bucketName);
+  Zotero.Prefs.set("extensions.zotero.s3sync.s3.endpoint", endpoint);
+  Zotero.Prefs.set("extensions.zotero.s3sync.s3.region", region);
+  Zotero.Prefs.set("extensions.zotero.s3sync.s3.accessKeyId", accessKeyId);
+  Zotero.Prefs.set(
+    "extensions.zotero.s3sync.s3.secretAccessKey",
+    secretAccessKey,
+  );
+  Zotero.Prefs.set("extensions.zotero.s3sync.s3.bucketName", bucketName);
 
-  console.log('Configuration saved to Zotero preferences');
+  console.log("Configuration saved to Zotero preferences");
 };
 
 testPlugin();
@@ -174,22 +183,31 @@ testPlugin();
 
 ```javascript
 // 1. Zotero 版本
-console.log('Zotero version:', Zotero.version);
+console.log("Zotero version:", Zotero.version);
 
 // 2. 已安装的插件
-console.log('Installed addons:',
-  Array.from(Services.dirsvc.get('ProfD', Components.interfaces.nsIFile).directoryEntries)
-    .filter(f => f.leafName.includes('xpi') || f.leafName.includes('@'))
-    .map(f => f.leafName)
+console.log(
+  "Installed addons:",
+  Array.from(
+    Services.dirsvc.get("ProfD", Components.interfaces.nsIFile)
+      .directoryEntries,
+  )
+    .filter((f) => f.leafName.includes("xpi") || f.leafName.includes("@"))
+    .map((f) => f.leafName),
 );
 
 // 3. 插件对象
-console.log('S3Sync object:', typeof Zotero.S3Sync, Zotero.S3Sync);
+console.log("S3Sync object:", typeof Zotero.S3Sync, Zotero.S3Sync);
 
 // 4. 扩展管理器中的插件
-const { AddonManager } = ChromeUtils.import('resource://gre/modules/AddonManager.jsm');
-AddonManager.getAllAddons().then(addons => {
-  console.log('All addons:', addons.map(a => ({id: a.id, name: a.name, enabled: a.isActive})));
+const { AddonManager } = ChromeUtils.import(
+  "resource://gre/modules/AddonManager.jsm",
+);
+AddonManager.getAllAddons().then((addons) => {
+  console.log(
+    "All addons:",
+    addons.map((a) => ({ id: a.id, name: a.name, enabled: a.isActive })),
+  );
 });
 ```
 

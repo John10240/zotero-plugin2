@@ -28,14 +28,17 @@
 ### 如果还是看不到设置
 
 1. **检查插件是否已启用**
+
    ```
    工具 -> 插件 -> 确认 "Zotero S3 Sync" 已启用
    ```
 
 2. **查看错误日志**
+
    ```
    帮助 -> 调试输出日志 -> 查看输出
    ```
+
    查找与插件相关的错误信息
 
 3. **完全重启 Zotero**
@@ -56,6 +59,7 @@
 **症状**: 安装后插件列表中看不到插件
 
 **解决方案**:
+
 - 确保下载的是正确的 `.xpi` 文件
 - 确保 Zotero 版本是 7.0 或更高
 - 检查 Zotero 错误日志
@@ -65,6 +69,7 @@
 **症状**: 工具菜单中没有"同步到 S3"选项
 
 **解决方案**:
+
 - 确认插件已正确安装并启用
 - 重启 Zotero
 - 检查是否有 JavaScript 错误（帮助 -> 调试输出日志）
@@ -74,6 +79,7 @@
 **症状**: 点击"测试连接"按钮后显示连接失败
 
 **可能原因及解决**:
+
 - **端点 URL 错误**: 确保格式正确，例如 `https://s3.amazonaws.com`
 - **区域不匹配**: 确认区域代码正确，例如 `us-east-1`
 - **密钥错误**: 检查 Access Key 和 Secret Key 是否正确
@@ -86,6 +92,7 @@
 **症状**: 同步时显示错误或上传失败
 
 **解决方案**:
+
 - 检查网络连接
 - 确认 S3 存储桶有足够空间
 - 检查文件权限
@@ -96,6 +103,7 @@
 **症状**: 插件显示没有附件需要同步
 
 **解决方案**:
+
 - 确认 Zotero 库中有附件文件（PDF、文档等）
 - 确保附件已下载到本地（不是链接型附件）
 - 检查附件文件是否存在于本地文件系统
@@ -113,15 +121,16 @@
 ### 查看插件状态
 
 在 Zotero 的浏览器控制台中执行：
+
 ```javascript
 // 检查插件是否加载
-Zotero.S3Sync
+Zotero.S3Sync;
 
 // 查看插件配置
-Zotero.Prefs.get('extensions.zotero.s3sync.s3.endpoint')
+Zotero.Prefs.get("extensions.zotero.s3sync.s3.endpoint");
 
 // 测试连接
-await Zotero.S3Sync.data.syncManager.s3Manager.testConnection()
+await Zotero.S3Sync.data.syncManager.s3Manager.testConnection();
 ```
 
 ## 获取帮助
@@ -140,6 +149,7 @@ await Zotero.S3Sync.data.syncManager.s3Manager.testConnection()
 ## 修复内容记录
 
 ### 版本 0.1.0 修复
+
 - ✅ 添加了 `manifest.json` 中的 `preferences` 配置
 - ✅ 更新了本地化字符串
 - ✅ 确保偏好设置面板正确注册
