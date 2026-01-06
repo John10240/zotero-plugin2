@@ -86,7 +86,9 @@ export class SyncManager {
       localFiles.set(attachment.attachmentKey, {
         hash: attachment.hash,
         filePath: attachment.filePath,
-        modTime: await this.getFileModTime(attachment.filePath),
+        modTime: attachment.filePath
+          ? await this.getFileModTime(attachment.filePath)
+          : 0,
       });
     }
 
@@ -387,6 +389,18 @@ export class SyncManager {
 
     // Case 3: File exists only locally
     if (local && !remote) {
+      // Special case: Item exists but file doesn't (empty hash/path)
+      // Without remote file, there's nothing to download and nothing to upload
+      if (local.hash === "") {
+        ztoolkit.log(
+          `本地文件不存在且远程也不存在: ${attachmentKey}，跳过`,
+        );
+        return {
+          type: "no-change",
+          attachmentKey,
+        };
+      }
+
       // Never synced before - upload
       if (!metadata || lastSyncTime === 0) {
         return {

@@ -396,6 +396,10 @@ export class S3Manager {
 
       return new Promise((resolve) => {
         xhr.onload = () => {
+          ztoolkit.log(
+            `S3 listFiles response: status=${xhr.status}, responseLength=${xhr.responseText?.length || 0}`,
+          );
+
           if (xhr.status >= 200 && xhr.status < 300) {
             // Parse XML response
             const parser = new DOMParser();
@@ -405,6 +409,15 @@ export class S3Manager {
             );
             const files: S3FileMetadata[] = [];
             const contents = xmlDoc.getElementsByTagName("Contents");
+
+            ztoolkit.log(`解析到 ${contents.length} 个 Contents 元素`);
+
+            // Log first 1000 chars of XML for debugging
+            if (xhr.responseText && xhr.responseText.length > 0) {
+              ztoolkit.log(
+                `XML 响应（前1000字符）: ${xhr.responseText.substring(0, 1000)}`,
+              );
+            }
 
             for (let i = 0; i < contents.length; i++) {
               const content = contents[i];
@@ -427,13 +440,20 @@ export class S3Manager {
                 etag: etag.replace(/"/g, ""), // Remove quotes from ETag
               });
             }
+
+            ztoolkit.log(`返回 ${files.length} 个文件`);
             resolve(files);
           } else {
+            ztoolkit.log(
+              `S3 listFiles 失败: ${xhr.status} ${xhr.statusText}`,
+            );
+            ztoolkit.log(`响应内容: ${xhr.responseText}`);
             resolve([]);
           }
         };
 
         xhr.onerror = () => {
+          ztoolkit.log("S3 listFiles 网络错误");
           resolve([]);
         };
 
