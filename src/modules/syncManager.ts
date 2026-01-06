@@ -97,7 +97,20 @@ export class SyncManager {
     const remoteFiles = await this.s3Manager.listFilesWithMetadata(prefix);
     const remoteFilesMap = new Map<string, S3FileMetadata>();
 
-    ztoolkit.log(`获取到 ${remoteFiles.length} 个远程文件`);
+    ztoolkit.log(`获取到 ${remoteFiles.length} 个远程文件（prefix: ${prefix}）`);
+
+    // If no files found with prefix, try listing all files to diagnose
+    if (remoteFiles.length === 0) {
+      ztoolkit.log(`使用 prefix="${prefix}" 未找到文件，尝试列出所有文件...`);
+      const allFiles = await this.s3Manager.listFilesWithMetadata("");
+      ztoolkit.log(`Bucket 中共有 ${allFiles.length} 个文件：`);
+      for (let i = 0; i < Math.min(10, allFiles.length); i++) {
+        ztoolkit.log(`  - ${allFiles[i].key}`);
+      }
+      if (allFiles.length > 10) {
+        ztoolkit.log(`  ... 还有 ${allFiles.length - 10} 个文件`);
+      }
+    }
 
     for (const remoteFile of remoteFiles) {
       // Extract attachment key from S3 key (remove prefix)
