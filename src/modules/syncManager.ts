@@ -500,12 +500,42 @@ export class SyncManager {
       // Get file path
       let filePath = operation.filePath;
       if (!filePath) {
+        // Try to get existing file path
         filePath = await item.getFilePathAsync();
       }
 
       if (!filePath) {
-        ztoolkit.log(`No file path for ${operation.attachmentKey}`);
-        return false;
+        // File doesn't exist, construct the expected path
+        // Zotero storage path: {dataDir}/storage/{attachmentKey}/{filename}
+        const storageDir = Zotero.DataDirectory.dir;
+        const attachmentDir = PathUtils.join(
+          storageDir,
+          "storage",
+          operation.attachmentKey,
+        );
+
+        // Get filename from attachment
+        const filename = item.attachmentFilename;
+        if (!filename) {
+          ztoolkit.log(
+            `No filename for attachment ${operation.attachmentKey}`,
+          );
+          return false;
+        }
+
+        filePath = PathUtils.join(attachmentDir, filename);
+        ztoolkit.log(
+          `构建文件路径: ${filePath} (文件名: ${filename})`,
+        );
+
+        // Ensure directory exists
+        try {
+          await IOUtils.makeDirectory(attachmentDir, { ignoreExisting: true });
+          ztoolkit.log(`创建目录: ${attachmentDir}`);
+        } catch (error) {
+          ztoolkit.log(`Failed to create directory ${attachmentDir}:`, error);
+          return false;
+        }
       }
 
       // Write blob to file
