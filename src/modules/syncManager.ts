@@ -245,8 +245,44 @@ export class SyncManager {
 
     // Case 2: File exists locally and remotely
     if (local && remote) {
-      const localChanged = !lastSyncHash || local.hash !== lastSyncHash;
-      const remoteChanged = !lastSyncHash || remote.etag !== lastSyncHash;
+      // First sync: no lastSyncHash available
+      if (!lastSyncHash) {
+        // Compare local and remote directly
+        if (local.hash === remote.etag) {
+          // Files are identical, record as synced
+          return {
+            type: 'no-change',
+            attachmentKey,
+            localHash: local.hash,
+            remoteETag: remote.etag,
+          };
+        }
+
+        // Files are different on first sync
+        // Default behavior: use local (upload) as it's likely more recent
+        // Or could use modification time to decide
+        if (local.modTime > remote.lastModified) {
+          return {
+            type: 'upload',
+            attachmentKey,
+            localHash: local.hash,
+            remoteETag: remote.etag,
+            filePath: local.filePath,
+          };
+        } else {
+          return {
+            type: 'download',
+            attachmentKey,
+            localHash: local.hash,
+            remoteETag: remote.etag,
+            filePath: local.filePath,
+          };
+        }
+      }
+
+      // Subsequent syncs: compare with lastSyncHash
+      const localChanged = local.hash !== lastSyncHash;
+      const remoteChanged = remote.etag !== lastSyncHash;
 
       // Both unchanged
       if (!localChanged && !remoteChanged) {
@@ -786,6 +822,22 @@ export class SyncManager {
           completed++;
         } else {
           failed++;
+        }
+      }
+
+      // Update metadata for no-change files (to avoid re-checking next time)
+      for (const op of operations.noChange) {
+        if (op.localHash && op.remoteETag) {
+          // Record that these files are in sync
+          const metadata = this.metadataManager.getFileMetadata(op.attachmentKey);
+          if (!metadata || !metadata.lastSyncHash) {
+            // First time detecting this file is synced, record it
+            this.metadataManager.updateFileMetadata(op.attachmentKey, {
+              hash: op.localHash,
+              lastSyncHash: op.localHash,
+              lastSyncTime: Date.now(),
+            });
+          }
         }
       }
 
