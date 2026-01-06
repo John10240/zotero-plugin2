@@ -18,4 +18,6 @@ jobs:
     with:
       build: "npm run build"
       release: "npm run release"
+      # Enable automatic changelog generation from commits
+      changelog: true
     secrets: inherit
