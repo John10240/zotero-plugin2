@@ -1,5 +1,28 @@
-import { S3Manager } from "./s3Client";
+import { S3Manager, S3FileMetadata } from "./s3Client";
+import { SyncMetadataManager } from "./syncMetadata";
 import { getPref, setPref } from "../utils/prefs";
+
+type SyncOperationType = 'upload' | 'download' | 'conflict' | 'delete-local' | 'delete-remote' | 'no-change';
+
+interface SyncOperation {
+  type: SyncOperationType;
+  attachmentKey: string;
+  localHash?: string;
+  remoteETag?: string;
+  localModTime?: number;
+  remoteModTime?: number;
+  lastSyncHash?: string;
+  filePath?: string;
+}
+
+interface SyncOperations {
+  upload: SyncOperation[];
+  download: SyncOperation[];
+  conflicts: SyncOperation[];
+  deleteLocal: SyncOperation[];
+  deleteRemote: SyncOperation[];
+  noChange: SyncOperation[];
+}
 
 interface SyncItem {
   itemID: number;
@@ -16,13 +39,581 @@ interface SyncConflict {
   resolution?: 'upload' | 'download' | 'skip';
 }
 
+type ConflictResolutionStrategy = 'ask' | 'local-wins' | 'remote-wins' | 'newer-wins';
+
 export class SyncManager {
   private s3Manager: S3Manager;
+  private metadataManager: SyncMetadataManager;
   private syncQueue: SyncItem[] = [];
   private isSyncing: boolean = false;
 
   constructor() {
     this.s3Manager = new S3Manager();
+    this.metadataManager = new SyncMetadataManager();
+  }
+
+  /**
+   * Compare local and remote files and determine sync operations
+   */
+  private async compareFilesAndDetermineSyncOperations(): Promise<SyncOperations> {
+    const operations: SyncOperations = {
+      upload: [],
+      download: [],
+      conflicts: [],
+      deleteLocal: [],
+      deleteRemote: [],
+      noChange: [],
+    };
+
+    // Get all local attachments
+    const localFiles = new Map<string, { hash: string; filePath: string; modTime: number }>();
+    const localAttachments = await this.getAllAttachments();
+
+    for (const attachment of localAttachments) {
+      localFiles.set(attachment.attachmentKey, {
+        hash: attachment.hash,
+        filePath: attachment.filePath,
+        modTime: await this.getFileModTime(attachment.filePath),
+      });
+    }
+
+    // Get all remote files
+    const prefix = getPref("s3.prefix") as string || "zotero-attachments";
+    const remoteFiles = await this.s3Manager.listFilesWithMetadata(prefix);
+    const remoteFilesMap = new Map<string, S3FileMetadata>();
+
+    for (const remoteFile of remoteFiles) {
+      // Extract attachment key from S3 key (remove prefix)
+      const attachmentKey = remoteFile.key.replace(`${prefix}/`, '');
+      remoteFilesMap.set(attachmentKey, remoteFile);
+    }
+
+    // Get all metadata (last sync state)
+    const allMetadata = this.metadataManager.getAllFileMetadata();
+
+    // Combine all keys from local, remote, and metadata
+    const allKeys = new Set([
+      ...localFiles.keys(),
+      ...remoteFilesMap.keys(),
+      ...Object.keys(allMetadata),
+    ]);
+
+    // Analyze each file
+    for (const attachmentKey of allKeys) {
+      const local = localFiles.get(attachmentKey);
+      const remote = remoteFilesMap.get(attachmentKey);
+      const metadata = allMetadata[attachmentKey];
+
+      const operation = this.determineOperation(
+        attachmentKey,
+        local,
+        remote,
+        metadata
+      );
+
+      // Categorize operation
+      switch (operation.type) {
+        case 'upload':
+          operations.upload.push(operation);
+          break;
+        case 'download':
+          operations.download.push(operation);
+          break;
+        case 'conflict':
+          operations.conflicts.push(operation);
+          break;
+        case 'delete-local':
+          operations.deleteLocal.push(operation);
+          break;
+        case 'delete-remote':
+          operations.deleteRemote.push(operation);
+          break;
+        case 'no-change':
+          operations.noChange.push(operation);
+          break;
+      }
+    }
+
+    return operations;
+  }
+
+  /**
+   * Get all attachments from all libraries
+   */
+  private async getAllAttachments(): Promise<SyncItem[]> {
+    const items: SyncItem[] = [];
+
+    try {
+      const libraries = Zotero.Libraries.getAll();
+
+      for (const library of libraries) {
+        if (!library.filesEditable) {
+          continue;
+        }
+
+        const libraryID = library.libraryID;
+        const itemIDs = await Zotero.Items.getAll(libraryID, false, false, true);
+
+        for (const itemID of itemIDs) {
+          const item = await Zotero.Items.getAsync(itemID);
+
+          if (item && item.isAttachment() && item.isFileAttachment()) {
+            const file = await item.getFilePathAsync();
+
+            if (file) {
+              const hash = await this.getFileHash(file);
+              items.push({
+                itemID: item.id,
+                attachmentKey: item.key,
+                filePath: file,
+                hash: hash,
+                lastSync: this.getLastSyncTime(item.key),
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      ztoolkit.log("Error getting attachments:", error);
+    }
+
+    return items;
+  }
+
+  /**
+   * Check if incremental sync is enabled and conditions are met
+   */
+  private shouldUseIncrementalSync(): boolean {
+    const incrementalEnabled = getPref('sync.incremental') as boolean;
+    if (!incrementalEnabled) {
+      return false;
+    }
+
+    // Check if we have a recent full sync
+    const lastFullSync = this.metadataManager.getLastFullSync();
+    if (lastFullSync === 0) {
+      return false; // Never synced, must do full sync
+    }
+
+    // Only use incremental if last full sync was within a reasonable time
+    // For example, within 7 days
+    const daysSinceFullSync = (Date.now() - lastFullSync) / (1000 * 60 * 60 * 24);
+    const maxDaysForIncremental = (getPref('sync.incrementalMaxDays') as number) || 7;
+
+    return daysSinceFullSync < maxDaysForIncremental;
+  }
+
+  /**
+   * Filter attachments for incremental sync
+   */
+  private filterForIncrementalSync(items: SyncItem[]): SyncItem[] {
+    const lastFullSync = this.metadataManager.getLastFullSync();
+
+    return items.filter(item => {
+      // Include if never synced
+      if (item.lastSync === 0) {
+        return true;
+      }
+
+      // Include if modified since last full sync
+      // We'll check the file modification time
+      return true; // For now, include all in the comparison logic
+      // The three-way merge will determine what actually needs syncing
+    });
+  }
+
+  /**
+   * Three-way merge decision engine
+   * Determines what operation to perform based on local, remote, and last sync state
+   */
+  private determineOperation(
+    attachmentKey: string,
+    local: { hash: string; filePath: string; modTime: number } | undefined,
+    remote: S3FileMetadata | undefined,
+    metadata: any
+  ): SyncOperation {
+    const lastSyncHash = metadata?.lastSyncHash;
+    const lastSyncTime = metadata?.lastSyncTime || 0;
+
+    // Case 1: File doesn't exist anywhere (should not happen, but handle it)
+    if (!local && !remote && !metadata) {
+      return {
+        type: 'no-change',
+        attachmentKey,
+      };
+    }
+
+    // Case 2: File exists locally and remotely
+    if (local && remote) {
+      const localChanged = !lastSyncHash || local.hash !== lastSyncHash;
+      const remoteChanged = !lastSyncHash || remote.etag !== lastSyncHash;
+
+      // Both unchanged
+      if (!localChanged && !remoteChanged) {
+        return {
+          type: 'no-change',
+          attachmentKey,
+          localHash: local.hash,
+          remoteETag: remote.etag,
+        };
+      }
+
+      // Only local changed
+      if (localChanged && !remoteChanged) {
+        return {
+          type: 'upload',
+          attachmentKey,
+          localHash: local.hash,
+          remoteETag: remote.etag,
+          lastSyncHash,
+          filePath: local.filePath,
+        };
+      }
+
+      // Only remote changed
+      if (!localChanged && remoteChanged) {
+        return {
+          type: 'download',
+          attachmentKey,
+          localHash: local.hash,
+          remoteETag: remote.etag,
+          lastSyncHash,
+          filePath: local.filePath,
+        };
+      }
+
+      // Both changed - conflict!
+      return {
+        type: 'conflict',
+        attachmentKey,
+        localHash: local.hash,
+        remoteETag: remote.etag,
+        localModTime: local.modTime,
+        remoteModTime: remote.lastModified,
+        lastSyncHash,
+        filePath: local.filePath,
+      };
+    }
+
+    // Case 3: File exists only locally
+    if (local && !remote) {
+      // Never synced before - upload
+      if (!metadata || lastSyncTime === 0) {
+        return {
+          type: 'upload',
+          attachmentKey,
+          localHash: local.hash,
+          filePath: local.filePath,
+        };
+      }
+
+      // Was synced before but deleted remotely - delete local
+      return {
+        type: 'delete-local',
+        attachmentKey,
+        localHash: local.hash,
+        lastSyncHash,
+        filePath: local.filePath,
+      };
+    }
+
+    // Case 4: File exists only remotely
+    if (!local && remote) {
+      // Never synced before or new file on remote - download
+      if (!metadata || lastSyncTime === 0) {
+        return {
+          type: 'download',
+          attachmentKey,
+          remoteETag: remote.etag,
+          remoteModTime: remote.lastModified,
+        };
+      }
+
+      // Was synced before but deleted locally - delete remote
+      return {
+        type: 'delete-remote',
+        attachmentKey,
+        remoteETag: remote.etag,
+        lastSyncHash,
+      };
+    }
+
+    // Case 5: File doesn't exist locally or remotely, but has metadata
+    // This means it was deleted from both sides - clean up metadata
+    if (!local && !remote && metadata) {
+      return {
+        type: 'no-change', // Will clean up metadata
+        attachmentKey,
+      };
+    }
+
+    // Default: no change
+    return {
+      type: 'no-change',
+      attachmentKey,
+    };
+  }
+
+  /**
+   * Execute download operation for a single file
+   */
+  private async executeDownload(operation: SyncOperation): Promise<boolean> {
+    try {
+      const s3Key = this.getS3Key(operation.attachmentKey);
+      const blob = await this.s3Manager.downloadFile(s3Key);
+
+      if (!blob) {
+        ztoolkit.log(`Failed to download ${operation.attachmentKey}: blob is null`);
+        return false;
+      }
+
+      // Get or create the attachment item
+      const item = await this.getOrCreateAttachmentItem(operation.attachmentKey);
+      if (!item) {
+        ztoolkit.log(`Failed to get or create attachment item for ${operation.attachmentKey}`);
+        return false;
+      }
+
+      // Get file path
+      let filePath = operation.filePath;
+      if (!filePath) {
+        filePath = await item.getFilePathAsync();
+      }
+
+      if (!filePath) {
+        ztoolkit.log(`No file path for ${operation.attachmentKey}`);
+        return false;
+      }
+
+      // Write blob to file
+      await this.writeBlobToFile(blob, filePath);
+
+      // Update metadata
+      const hash = await this.getFileHash(filePath);
+      const localMtime = await this.getFileModTime(filePath);
+      const fileSize = await this.getFileSize(filePath);
+
+      this.metadataManager.recordSync(
+        operation.attachmentKey,
+        hash,
+        localMtime,
+        operation.remoteModTime || Date.now(),
+        fileSize
+      );
+
+      ztoolkit.log(`Successfully downloaded ${operation.attachmentKey}`);
+      return true;
+    } catch (error) {
+      ztoolkit.log(`Error downloading ${operation.attachmentKey}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Execute upload operation for a single file
+   */
+  private async executeUpload(operation: SyncOperation): Promise<boolean> {
+    try {
+      if (!operation.filePath) {
+        ztoolkit.log(`No file path for upload: ${operation.attachmentKey}`);
+        return false;
+      }
+
+      const s3Key = this.getS3Key(operation.attachmentKey);
+      const blob = await this.readFileAsBlob(operation.filePath);
+
+      if (!blob) {
+        ztoolkit.log(`Failed to read file: ${operation.filePath}`);
+        return false;
+      }
+
+      const success = await this.s3Manager.uploadFile(blob, s3Key);
+
+      if (success) {
+        // Update metadata
+        const hash = await this.getFileHash(operation.filePath);
+        const localMtime = await this.getFileModTime(operation.filePath);
+        const remoteMtime = await this.s3Manager.getFileModTime(s3Key);
+        const fileSize = await this.getFileSize(operation.filePath);
+
+        this.metadataManager.recordSync(
+          operation.attachmentKey,
+          hash,
+          localMtime,
+          remoteMtime,
+          fileSize
+        );
+
+        ztoolkit.log(`Successfully uploaded ${operation.attachmentKey}`);
+      }
+
+      return success;
+    } catch (error) {
+      ztoolkit.log(`Error uploading ${operation.attachmentKey}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get attachment item by key, or return null if not found
+   */
+  private async getOrCreateAttachmentItem(attachmentKey: string): Promise<any> {
+    try {
+      // Try to get existing item
+      const libraries = Zotero.Libraries.getAll();
+
+      for (const library of libraries) {
+        const item = Zotero.Items.getByLibraryAndKey(library.libraryID, attachmentKey);
+        if (item) {
+          return item;
+        }
+      }
+
+      // Item not found - this means it's a remote file that doesn't exist locally
+      // For now, we skip creating new items as this requires more context
+      // (parent item, collection, etc.)
+      ztoolkit.log(`Attachment item not found for key: ${attachmentKey}`);
+      return null;
+    } catch (error) {
+      ztoolkit.log(`Error getting attachment item: ${attachmentKey}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve conflicts based on strategy
+   */
+  private async resolveConflicts(
+    conflicts: SyncOperation[],
+    strategy?: ConflictResolutionStrategy
+  ): Promise<{ upload: SyncOperation[]; download: SyncOperation[]; skip: SyncOperation[] }> {
+    const result = {
+      upload: [] as SyncOperation[],
+      download: [] as SyncOperation[],
+      skip: [] as SyncOperation[],
+    };
+
+    // Get strategy from preferences or use provided one
+    const conflictStrategy = strategy || (getPref('conflictResolution') as ConflictResolutionStrategy) || 'ask';
+
+    if (conflictStrategy === 'ask') {
+      // Show dialog for each conflict or ask for global strategy
+      const resolution = await this.showConflictDialog(conflicts.length);
+
+      if (resolution === 'cancel') {
+        result.skip = conflicts;
+        return result;
+      }
+
+      // Apply resolution to all conflicts
+      for (const conflict of conflicts) {
+        if (resolution === 'upload') {
+          result.upload.push(conflict);
+        } else if (resolution === 'download') {
+          result.download.push(conflict);
+        }
+      }
+    } else {
+      // Auto-resolve based on strategy
+      for (const conflict of conflicts) {
+        const resolution = this.autoResolveConflict(conflict, conflictStrategy);
+
+        if (resolution === 'upload') {
+          result.upload.push(conflict);
+        } else if (resolution === 'download') {
+          result.download.push(conflict);
+        } else {
+          result.skip.push(conflict);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Auto-resolve conflict based on strategy
+   */
+  private autoResolveConflict(
+    conflict: SyncOperation,
+    strategy: ConflictResolutionStrategy
+  ): 'upload' | 'download' | 'skip' {
+    switch (strategy) {
+      case 'local-wins':
+        return 'upload';
+
+      case 'remote-wins':
+        return 'download';
+
+      case 'newer-wins':
+        // Compare modification times
+        if (conflict.localModTime && conflict.remoteModTime) {
+          return conflict.localModTime > conflict.remoteModTime ? 'upload' : 'download';
+        }
+        // Fallback to local if no timestamps
+        return 'upload';
+
+      default:
+        return 'skip';
+    }
+  }
+
+  /**
+   * Execute delete local operation
+   */
+  private async executeDeleteLocal(operation: SyncOperation): Promise<boolean> {
+    try {
+      if (!operation.filePath) {
+        ztoolkit.log(`No file path for delete-local: ${operation.attachmentKey}`);
+        return false;
+      }
+
+      // Get attachment item
+      const item = await this.getOrCreateAttachmentItem(operation.attachmentKey);
+      if (!item) {
+        ztoolkit.log(`Attachment item not found: ${operation.attachmentKey}`);
+        return false;
+      }
+
+      // Delete the file
+      const file = Zotero.File.pathToFile(operation.filePath);
+      if (file.exists()) {
+        file.remove(false);
+        ztoolkit.log(`Deleted local file: ${operation.filePath}`);
+      }
+
+      // Optionally delete the attachment item (or just mark as missing)
+      // For now, we'll just delete the file and let Zotero handle the missing file
+
+      // Remove metadata
+      this.metadataManager.removeFileMetadata(operation.attachmentKey);
+
+      return true;
+    } catch (error) {
+      ztoolkit.log(`Error deleting local file ${operation.attachmentKey}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Execute delete remote operation
+   */
+  private async executeDeleteRemote(operation: SyncOperation): Promise<boolean> {
+    try {
+      const s3Key = this.getS3Key(operation.attachmentKey);
+      const success = await this.s3Manager.deleteFile(s3Key);
+
+      if (success) {
+        // Remove metadata
+        this.metadataManager.removeFileMetadata(operation.attachmentKey);
+        ztoolkit.log(`Deleted remote file: ${s3Key}`);
+      }
+
+      return success;
+    } catch (error) {
+      ztoolkit.log(`Error deleting remote file ${operation.attachmentKey}:`, error);
+      return false;
+    }
   }
 
   public async syncAttachments(): Promise<void> {
@@ -47,42 +638,72 @@ export class SyncManager {
 
     this.isSyncing = true;
 
-    const progressWindow = new ztoolkit.ProgressWindow("S3 云同步")
+    const isIncremental = this.shouldUseIncrementalSync();
+    const syncType = isIncremental ? "增量同步" : "完整同步";
+
+    const progressWindow = new ztoolkit.ProgressWindow(`S3 云同步 - ${syncType}`)
       .createLine({
-        text: "正在扫描附件...",
+        text: "正在分析本地和远程文件...",
         type: "default",
         progress: 0,
       })
       .show();
 
     try {
-      const items = await this.getAttachmentsToSync();
-      ztoolkit.log(`Found ${items.length} attachments to sync`);
+      // Analyze local and remote files
+      progressWindow.changeLine({
+        text: "正在分析文件差异...",
+        type: "default",
+        progress: 5,
+      });
 
-      if (items.length === 0) {
+      const operations = await this.compareFilesAndDetermineSyncOperations();
+
+      const totalOperations =
+        operations.upload.length +
+        operations.download.length +
+        operations.conflicts.length +
+        operations.deleteLocal.length +
+        operations.deleteRemote.length;
+
+      ztoolkit.log(`同步分析完成:
+        上传: ${operations.upload.length}
+        下载: ${operations.download.length}
+        冲突: ${operations.conflicts.length}
+        删除本地: ${operations.deleteLocal.length}
+        删除远程: ${operations.deleteRemote.length}
+        无变化: ${operations.noChange.length}`);
+
+      if (totalOperations === 0) {
         progressWindow.changeLine({
           text: "所有文件已同步",
           type: "success",
           progress: 100,
         });
-        progressWindow.startCloseTimer(5000);
+        progressWindow.startCloseTimer(3000);
+
+        // Update last full sync time
+        if (!isIncremental) {
+          this.metadataManager.updateLastFullSync();
+        }
+
         this.isSyncing = false;
         return;
       }
 
-      // Check for conflicts before syncing
-      progressWindow.changeLine({
-        text: `检查 ${items.length} 个附件的冲突...`,
-        type: "default",
-        progress: 5,
-      });
+      // Handle conflicts
+      let resolvedConflicts = { upload: [] as SyncOperation[], download: [] as SyncOperation[], skip: [] as SyncOperation[] };
+      if (operations.conflicts.length > 0) {
+        progressWindow.changeLine({
+          text: `发现 ${operations.conflicts.length} 个冲突，正在解决...`,
+          type: "default",
+          progress: 10,
+        });
 
-      const conflicts = await this.detectConflicts(items);
+        resolvedConflicts = await this.resolveConflicts(operations.conflicts);
 
-      if (conflicts.length > 0) {
-        const resolution = await this.showConflictDialog(conflicts.length);
-
-        if (resolution === 'cancel') {
+        if (resolvedConflicts.skip.length === operations.conflicts.length) {
+          // User cancelled
           progressWindow.changeLine({
             text: "用户取消同步",
             type: "default",
@@ -93,97 +714,100 @@ export class SyncManager {
           return;
         }
 
-        // Apply resolution to all items
-        for (const conflict of conflicts) {
-          conflict.resolution = resolution;
+        // Add resolved conflicts to respective operation lists
+        operations.upload.push(...resolvedConflicts.upload);
+        operations.download.push(...resolvedConflicts.download);
+      }
+
+      // Execute operations
+      let completed = 0;
+      let failed = 0;
+      const totalToSync = operations.upload.length + operations.download.length +
+                          operations.deleteLocal.length + operations.deleteRemote.length;
+
+      // Execute uploads
+      for (const op of operations.upload) {
+        progressWindow.changeLine({
+          text: `上传: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
+          type: "default",
+          progress: 15 + (completed / totalToSync) * 70,
+        });
+
+        const success = await this.executeUpload(op);
+        if (success) {
+          completed++;
+        } else {
+          failed++;
         }
       }
 
-      let synced = 0;
-      let skipped = 0;
-      const concurrencyLimit = 5; // Maximum concurrent operations
-      let activeCount = 0;
-      let completedCount = 0;
+      // Execute downloads
+      for (const op of operations.download) {
+        progressWindow.changeLine({
+          text: `下载: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
+          type: "default",
+          progress: 15 + (completed / totalToSync) * 70,
+        });
 
-      // Process items with concurrency limit
-      await new Promise<void>((resolve) => {
-        let currentIndex = 0;
-
-        const processNext = async () => {
-          if (currentIndex >= items.length) {
-            if (activeCount === 0) {
-              resolve();
-            }
-            return;
-          }
-
-          const index = currentIndex++;
-          const item = items[index];
-          const conflict = conflicts.find(c => c.item.attachmentKey === item.attachmentKey);
-
-          activeCount++;
-
-          try {
-            const currentProgress = 10 + ((completedCount / items.length) * 85);
-
-            progressWindow.changeLine({
-              text: `同步中: ${item.attachmentKey} (${completedCount + 1}/${items.length})`,
-              type: "default",
-              progress: currentProgress,
-            });
-
-            const success = await this.syncAttachment(item, conflict?.resolution);
-
-            if (success) {
-              synced++;
-              await this.updateSyncRecord(item);
-            } else {
-              skipped++;
-            }
-          } catch (error) {
-            ztoolkit.log(`Failed to sync attachment ${item.attachmentKey}:`, error);
-            skipped++;
-          } finally {
-            activeCount--;
-            completedCount++;
-
-            // Update progress
-            const currentProgress = 10 + ((completedCount / items.length) * 85);
-            progressWindow.changeLine({
-              text: `已完成 ${completedCount}/${items.length} (成功: ${synced}, 跳过: ${skipped})`,
-              type: "default",
-              progress: currentProgress,
-            });
-
-            // Process next item or resolve if done
-            if (currentIndex < items.length) {
-              processNext();
-            } else if (activeCount === 0) {
-              resolve();
-            }
-          }
-        };
-
-        // Start initial batch of operations
-        for (let i = 0; i < Math.min(concurrencyLimit, items.length); i++) {
-          processNext();
+        const success = await this.executeDownload(op);
+        if (success) {
+          completed++;
+        } else {
+          failed++;
         }
-      });
+      }
+
+      // Execute local deletes
+      for (const op of operations.deleteLocal) {
+        progressWindow.changeLine({
+          text: `删除本地: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
+          type: "default",
+          progress: 15 + (completed / totalToSync) * 70,
+        });
+
+        const success = await this.executeDeleteLocal(op);
+        if (success) {
+          completed++;
+        } else {
+          failed++;
+        }
+      }
+
+      // Execute remote deletes
+      for (const op of operations.deleteRemote) {
+        progressWindow.changeLine({
+          text: `删除远程: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
+          type: "default",
+          progress: 15 + (completed / totalToSync) * 70,
+        });
+
+        const success = await this.executeDeleteRemote(op);
+        if (success) {
+          completed++;
+        } else {
+          failed++;
+        }
+      }
+
+      // Update last full sync time
+      if (!isIncremental) {
+        this.metadataManager.updateLastFullSync();
+      }
 
       // Clear sync status
       addon.data.syncStatus = { isSyncing: false };
       this.updateToolbarTooltip("S3 云同步");
 
       progressWindow.changeLine({
-        text: `Sync complete: ${synced} synced, ${skipped} skipped`,
-        type: "success",
+        text: `同步完成: ${completed} 成功, ${failed} 失败`,
+        type: failed > 0 ? "default" : "success",
         progress: 100,
       });
-      progressWindow.startCloseTimer(3000);
+      progressWindow.startCloseTimer(5000);
     } catch (error) {
       ztoolkit.log("Sync error:", error);
       progressWindow.changeLine({
-        text: `Sync failed: ${error}`,
+        text: `同步失败: ${error}`,
         type: "error",
         progress: 0,
       });
@@ -193,161 +817,29 @@ export class SyncManager {
     }
   }
 
-  private async getAttachmentsToSync(): Promise<SyncItem[]> {
-    const items: SyncItem[] = [];
-
-    try {
-      // Get all libraries
-      const libraries = Zotero.Libraries.getAll();
-
-      ztoolkit.log(`Found ${libraries.length} libraries to scan`);
-
-      for (const library of libraries) {
-        // Skip if library doesn't support files
-        if (!library.filesEditable) {
-          ztoolkit.log(`Skipping library ${library.name} - files not editable`);
-          continue;
-        }
-
-        ztoolkit.log(`Scanning library: ${library.name}`);
-
-        // Get all items in the library
-        const libraryID = library.libraryID;
-        const itemIDs = await Zotero.Items.getAll(libraryID, false, false, true);
-
-        ztoolkit.log(`Found ${itemIDs.length} items in library ${library.name}`);
-
-        let attachmentCount = 0;
-        let fileAttachmentCount = 0;
-        let attachmentWithPathCount = 0;
-
-        for (const itemID of itemIDs) {
-          const item = await Zotero.Items.getAsync(itemID);
-
-          if (item && item.isAttachment()) {
-            attachmentCount++;
-
-            if (item.isFileAttachment()) {
-              fileAttachmentCount++;
-              const file = await item.getFilePathAsync();
-
-              if (file) {
-                attachmentWithPathCount++;
-                const hash = await this.getFileHash(file);
-                const lastSync = this.getLastSyncTime(item.key);
-                const storedHash = this.getStoredHash(item.key);
-
-                // Include file if:
-                // 1. Never synced before (lastSync === 0)
-                // 2. Hash has changed (storedHash !== hash)
-                // 3. No stored hash (first time tracking)
-                const needsSync = lastSync === 0 || !storedHash || storedHash !== hash;
-
-                if (needsSync) {
-                  ztoolkit.log(`Adding attachment to sync: ${item.key} (lastSync: ${lastSync}, storedHash: ${storedHash}, currentHash: ${hash})`);
-                  items.push({
-                    itemID: item.id,
-                    attachmentKey: item.key,
-                    filePath: file,
-                    hash: hash,
-                    lastSync: lastSync,
-                  });
-                } else {
-                  // Only log first few to avoid spam
-                  if (items.length < 3) {
-                    ztoolkit.log(`Skipping attachment ${item.key} - already synced`);
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        ztoolkit.log(`Library ${library.name}: ${attachmentCount} attachments, ${fileAttachmentCount} file attachments, ${attachmentWithPathCount} with paths`);
-      }
-    } catch (error) {
-      ztoolkit.log("Error getting attachments:", error);
-      ztoolkit.log("Error message:", error instanceof Error ? error.message : String(error));
-      ztoolkit.log("Error stack:", error instanceof Error ? error.stack : "N/A");
-    }
-
-    return items;
-  }
-
-  private async syncAttachment(item: SyncItem, resolution?: 'upload' | 'download' | 'skip'): Promise<boolean> {
-    const s3Key = this.getS3Key(item.attachmentKey);
-
-    try {
-      // If resolution is skip, don't do anything
-      if (resolution === 'skip') {
-        return false;
-      }
-
-      // Check if file exists on S3
-      const existsOnS3 = await this.s3Manager.fileExists(s3Key);
-
-      if (!existsOnS3) {
-        // Upload to S3
-        const file = await this.readFileAsBlob(item.filePath);
-        if (file) {
-          return await this.s3Manager.uploadFile(file, s3Key);
-        }
-      } else {
-        // File exists on S3
-        if (resolution === 'upload') {
-          // Force upload local to S3
-          const file = await this.readFileAsBlob(item.filePath);
-          if (file) {
-            return await this.s3Manager.uploadFile(file, s3Key);
-          }
-        } else if (resolution === 'download') {
-          // Force download from S3 to local
-          const blob = await this.s3Manager.downloadFile(s3Key);
-          if (blob) {
-            await this.writeBlobToFile(blob, item.filePath);
-            return true;
-          }
-          return false;
-        } else {
-          // No conflict resolution, check if local is newer
-          const localModTime = await this.getFileModTime(item.filePath);
-          if (localModTime > item.lastSync) {
-            const file = await this.readFileAsBlob(item.filePath);
-            if (file) {
-              return await this.s3Manager.uploadFile(file, s3Key);
-            }
-          }
-        }
-      }
-
-      return true;
-    } catch (error) {
-      ztoolkit.log(`Error syncing attachment ${item.attachmentKey}:`, error);
-      return false;
-    }
-  }
-
-  private async needsSync(attachmentKey: string, currentHash: string): Promise<boolean> {
-    // @ts-expect-error - Dynamic pref keys
-    const storedHash = getPref(`sync.hash.${attachmentKey}`) as string;
-    return storedHash !== currentHash;
-  }
-
   private async updateSyncRecord(item: SyncItem): Promise<void> {
-    // @ts-expect-error - Dynamic pref keys
-    setPref(`sync.hash.${item.attachmentKey}`, item.hash);
-    // @ts-expect-error - Dynamic pref keys
-    setPref(`sync.time.${item.attachmentKey}`, Date.now());
+    const localMtime = await this.getFileModTime(item.filePath);
+    const s3Key = this.getS3Key(item.attachmentKey);
+    const remoteMtime = await this.s3Manager.getFileModTime(s3Key);
+    const fileSize = await this.getFileSize(item.filePath);
+
+    this.metadataManager.recordSync(
+      item.attachmentKey,
+      item.hash,
+      localMtime,
+      remoteMtime,
+      fileSize
+    );
   }
 
   private getLastSyncTime(attachmentKey: string): number {
-    // @ts-expect-error - Dynamic pref keys
-    return (getPref(`sync.time.${attachmentKey}`) as number) || 0;
+    const metadata = this.metadataManager.getFileMetadata(attachmentKey);
+    return metadata?.lastSyncTime || 0;
   }
 
   private getStoredHash(attachmentKey: string): string {
-    // @ts-expect-error - Dynamic pref keys
-    return (getPref(`sync.hash.${attachmentKey}`) as string) || '';
+    const metadata = this.metadataManager.getFileMetadata(attachmentKey);
+    return metadata?.hash || '';
   }
 
   private getS3Key(attachmentKey: string): string {
@@ -386,6 +878,15 @@ export class SyncManager {
     try {
       const file = Zotero.File.pathToFile(filePath);
       return file.lastModifiedTime;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  private async getFileSize(filePath: string): Promise<number> {
+    try {
+      const file = Zotero.File.pathToFile(filePath);
+      return file.fileSize || 0;
     } catch (error) {
       return 0;
     }
@@ -467,36 +968,6 @@ export class SyncManager {
     binaryStream.writeByteArray(Array.from(uint8Array), uint8Array.length);
     binaryStream.close();
     stream.close();
-  }
-
-  private async detectConflicts(items: SyncItem[]): Promise<SyncConflict[]> {
-    const conflicts: SyncConflict[] = [];
-
-    for (const item of items) {
-      try {
-        const s3Key = this.getS3Key(item.attachmentKey);
-        const existsOnS3 = await this.s3Manager.fileExists(s3Key);
-
-        if (existsOnS3) {
-          // Get modification times
-          const localModTime = await this.getFileModTime(item.filePath);
-          const s3ModTime = await this.s3Manager.getFileModTime(s3Key);
-
-          // Check if both were modified since last sync
-          if (item.lastSync > 0 && localModTime > item.lastSync && s3ModTime > item.lastSync) {
-            conflicts.push({
-              item,
-              localModTime,
-              s3ModTime,
-            });
-          }
-        }
-      } catch (error) {
-        ztoolkit.log(`Error detecting conflict for ${item.attachmentKey}:`, error);
-      }
-    }
-
-    return conflicts;
   }
 
   private async showConflictDialog(conflictCount: number): Promise<'upload' | 'download' | 'cancel'> {

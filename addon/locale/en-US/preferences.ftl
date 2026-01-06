@@ -12,5 +12,9 @@ pref-test-connection = Test Connection
 pref-sync-title = Sync Settings
 pref-auto-sync =
     .label = Enable Auto Sync
+pref-conflict-resolution = Conflict Resolution Strategy:
+pref-incremental-sync =
+    .label = Enable Incremental Sync
+pref-incremental-max-days = Incremental Sync Max Interval:
 
 pref-help = { $name } Build { $version } { $time }

@@ -12,5 +12,9 @@ pref-test-connection = 测试连接
 pref-sync-title = 同步设置
 pref-auto-sync =
     .label = 启用自动同步
+pref-conflict-resolution = 冲突解决策略:
+pref-incremental-sync =
+    .label = 启用增量同步
+pref-incremental-max-days = 增量同步最大间隔:
 
 pref-help = { $name } Build { $version } { $time }

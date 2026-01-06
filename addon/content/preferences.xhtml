@@ -115,6 +115,49 @@
     preference="sync.autoSync"
     data-l10n-id="pref-auto-sync"
   />
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-conflict-resolution"
+      data-l10n-id="pref-conflict-resolution"
+      style="min-width: 150px;"
+    ></html:label>
+    <menulist
+      id="zotero-prefpane-__addonRef__-conflict-resolution"
+      preference="conflictResolution"
+      style="flex: 1;"
+    >
+      <menupopup>
+        <menuitem label="Ask me (询问我)" value="ask"/>
+        <menuitem label="Newer wins (较新者优先)" value="newer-wins"/>
+        <menuitem label="Local wins (本地优先)" value="local-wins"/>
+        <menuitem label="Remote wins (远程优先)" value="remote-wins"/>
+      </menupopup>
+    </menulist>
+  </hbox>
+
+  <checkbox
+    id="zotero-prefpane-__addonRef__-incremental-sync"
+    preference="sync.incremental"
+    data-l10n-id="pref-incremental-sync"
+  />
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-incremental-max-days"
+      data-l10n-id="pref-incremental-max-days"
+      style="min-width: 150px;"
+    ></html:label>
+    <html:input
+      type="number"
+      id="zotero-prefpane-__addonRef__-incremental-max-days"
+      preference="sync.incrementalMaxDays"
+      min="1"
+      max="30"
+      style="width: 80px;"
+    ></html:input>
+    <html:label style="margin-left: 5px;">days (天)</html:label>
+  </hbox>
 </groupbox>
 <vbox>
   <html:label

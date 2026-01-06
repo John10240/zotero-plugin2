@@ -1,5 +1,12 @@
 import { getPref } from "../utils/prefs";
 
+export interface S3FileMetadata {
+  key: string;
+  lastModified: number;
+  size: number;
+  etag: string; // S3's ETag (MD5 hash for simple uploads)
+}
+
 export class S3Manager {
   private endpoint: string = "";
   private region: string = "";
@@ -326,6 +333,11 @@ export class S3Manager {
   }
 
   public async listFiles(prefix: string = ""): Promise<string[]> {
+    const files = await this.listFilesWithMetadata(prefix);
+    return files.map(f => f.key);
+  }
+
+  public async listFilesWithMetadata(prefix: string = ""): Promise<S3FileMetadata[]> {
     if (!this.isConfigured()) {
       return [];
     }
@@ -350,12 +362,24 @@ export class S3Manager {
             // Parse XML response
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(xhr.responseText || '', 'text/xml');
-            const keys: string[] = [];
-            const contents = xmlDoc.getElementsByTagName('Key');
+            const files: S3FileMetadata[] = [];
+            const contents = xmlDoc.getElementsByTagName('Contents');
+
             for (let i = 0; i < contents.length; i++) {
-              keys.push(contents[i].textContent || '');
+              const content = contents[i];
+              const key = content.getElementsByTagName('Key')[0]?.textContent || '';
+              const lastModified = content.getElementsByTagName('LastModified')[0]?.textContent || '';
+              const size = content.getElementsByTagName('Size')[0]?.textContent || '0';
+              const etag = content.getElementsByTagName('ETag')[0]?.textContent || '';
+
+              files.push({
+                key,
+                lastModified: lastModified ? new Date(lastModified).getTime() : 0,
+                size: parseInt(size, 10),
+                etag: etag.replace(/"/g, ''), // Remove quotes from ETag
+              });
             }
-            resolve(keys);
+            resolve(files);
           } else {
             resolve([]);
           }
@@ -442,6 +466,48 @@ export class S3Manager {
       ztoolkit.log("Error message:", error instanceof Error ? error.message : String(error));
       ztoolkit.log("Error stack:", error instanceof Error ? error.stack : "N/A");
       ztoolkit.log("Error object:", error);
+      return false;
+    }
+  }
+
+  public async deleteFile(key: string): Promise<boolean> {
+    if (!this.isConfigured()) {
+      ztoolkit.log("S3 client not configured");
+      return false;
+    }
+
+    try {
+      const url = this.getUrl(key);
+      const headers: Record<string, string> = {};
+      const signedHeaders = await this.signRequest('DELETE', url, headers);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('DELETE', url, true);
+
+      Object.keys(signedHeaders).forEach(key => {
+        xhr.setRequestHeader(key, signedHeaders[key]);
+      });
+
+      return new Promise((resolve) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            ztoolkit.log(`File deleted successfully: ${key}`);
+            resolve(true);
+          } else {
+            ztoolkit.log(`Failed to delete file ${key}: ${xhr.status}`);
+            resolve(false);
+          }
+        };
+
+        xhr.onerror = () => {
+          ztoolkit.log(`Network error deleting file ${key}`);
+          resolve(false);
+        };
+
+        xhr.send();
+      });
+    } catch (error) {
+      ztoolkit.log(`Failed to delete file ${key}:`, error);
       return false;
     }
   }

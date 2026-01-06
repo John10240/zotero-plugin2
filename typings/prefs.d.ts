@@ -17,6 +17,9 @@ declare namespace _ZoteroTypes {
       "s3.prefix": string;
       "sync.autoSync": boolean;
       "sync.syncInterval": number;
+      "conflictResolution": string;
+      "sync.incremental": boolean;
+      "sync.incrementalMaxDays": number;
     };
   }
 }

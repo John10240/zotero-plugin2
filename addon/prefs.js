@@ -12,3 +12,6 @@ pref("s3.prefix", "zotero-attachments");
 // Sync Settings
 pref("sync.autoSync", false);
 pref("sync.syncInterval", 3600000); // 1 hour in milliseconds
+pref("conflictResolution", "ask");
+pref("sync.incremental", true);
+pref("sync.incrementalMaxDays", 7);
