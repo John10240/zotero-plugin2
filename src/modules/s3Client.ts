@@ -20,11 +20,12 @@ export class S3Manager {
 
   private initializeClient(): void {
     try {
-      this.endpoint = (getPref("s3.endpoint") as string) || "";
-      this.region = (getPref("s3.region") as string) || "";
-      this.accessKeyId = (getPref("s3.accessKeyId") as string) || "";
-      this.secretAccessKey = (getPref("s3.secretAccessKey") as string) || "";
-      this.bucketName = (getPref("s3.bucketName") as string) || "";
+      // Trim all configuration values to remove leading/trailing whitespace
+      this.endpoint = ((getPref("s3.endpoint") as string) || "").trim();
+      this.region = ((getPref("s3.region") as string) || "").trim();
+      this.accessKeyId = ((getPref("s3.accessKeyId") as string) || "").trim();
+      this.secretAccessKey = ((getPref("s3.secretAccessKey") as string) || "").trim();
+      this.bucketName = ((getPref("s3.bucketName") as string) || "").trim();
 
       if (
         !this.endpoint ||
