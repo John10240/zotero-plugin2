@@ -95,11 +95,16 @@ export class SyncManager {
     const remoteFiles = await this.s3Manager.listFilesWithMetadata(prefix);
     const remoteFilesMap = new Map<string, S3FileMetadata>();
 
+    ztoolkit.log(`获取到 ${remoteFiles.length} 个远程文件`);
+
     for (const remoteFile of remoteFiles) {
       // Extract attachment key from S3 key (remove prefix)
       const attachmentKey = remoteFile.key.replace(`${prefix}/`, "");
       remoteFilesMap.set(attachmentKey, remoteFile);
+      ztoolkit.log(`远程文件: ${remoteFile.key} -> attachment key: ${attachmentKey}`);
     }
+
+    ztoolkit.log(`本地文件数量: ${localFiles.size}, 远程文件数量: ${remoteFilesMap.size}`);
 
     // Get all metadata (last sync state)
     const allMetadata = this.metadataManager.getAllFileMetadata();
@@ -179,12 +184,25 @@ export class SyncManager {
             const file = await item.getFilePathAsync();
 
             if (file) {
+              // File exists locally
               const hash = await this.getFileHash(file);
               items.push({
                 itemID: item.id,
                 attachmentKey: item.key,
                 filePath: file,
                 hash: hash,
+                lastSync: this.getLastSyncTime(item.key),
+              });
+            } else {
+              // File doesn't exist locally but item exists in Zotero
+              // This could mean the file was deleted or never downloaded
+              // We should check if it exists remotely and download it
+              ztoolkit.log(`本地文件不存在，但 item 存在: ${item.key}`);
+              items.push({
+                itemID: item.id,
+                attachmentKey: item.key,
+                filePath: "", // Empty path indicates file doesn't exist
+                hash: "", // Empty hash
                 lastSync: this.getLastSyncTime(item.key),
               });
             }
@@ -265,6 +283,22 @@ export class SyncManager {
 
     // Case 2: File exists locally and remotely
     if (local && remote) {
+      // Special case: Local file doesn't exist (empty hash) but item exists
+      // This means the file was deleted or never downloaded - should download
+      if (local.hash === "") {
+        ztoolkit.log(
+          `本地文件不存在但 item 存在，需要从远程下载: ${attachmentKey}`,
+        );
+        return {
+          type: "download",
+          attachmentKey,
+          localHash: local.hash,
+          remoteETag: remote.etag,
+          remoteModTime: remote.lastModified,
+          filePath: local.filePath,
+        };
+      }
+
       // First sync: no lastSyncHash available
       if (!lastSyncHash) {
         // Compare local and remote directly
