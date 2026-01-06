@@ -47,15 +47,9 @@ export class S3Manager {
 
   private getUrl(key: string): string {
     const endpoint = this.endpoint.replace(/\/$/, '');
-    // Support both path-style and virtual-hosted-style URLs
-    if (this.endpoint.includes('amazonaws.com')) {
-      // AWS S3 - use virtual-hosted style
-      // Format: https://bucket-name.s3.region.amazonaws.com/key
-      return `https://${this.bucketName}.s3.${this.region}.amazonaws.com/${key}`;
-    } else {
-      // Other S3-compatible services - use path style
-      return `${endpoint}/${this.bucketName}/${key}`;
-    }
+    // Force path-style URLs for all S3 services (including AWS)
+    // Format: https://endpoint/bucket-name/key
+    return `${endpoint}/${this.bucketName}/${key}`;
   }
 
   private async sha256Hex(data: string | Uint8Array): Promise<string> {
@@ -406,17 +400,9 @@ export class S3Manager {
     try {
       ztoolkit.log("Testing S3 connection...");
 
-      // Use the same URL construction logic as getUrl() for consistency
-      let url: string;
+      // Force path-style URL for all S3 services
       const endpoint = this.endpoint.replace(/\/$/, '');
-
-      if (this.endpoint.includes('amazonaws.com')) {
-        // AWS S3 - use virtual-hosted style
-        url = `https://${this.bucketName}.s3.${this.region}.amazonaws.com/?max-keys=1`;
-      } else {
-        // Other S3-compatible services - use path style
-        url = `${endpoint}/${this.bucketName}?max-keys=1`;
-      }
+      const url = `${endpoint}/${this.bucketName}?max-keys=1`;
 
       ztoolkit.log(`Testing connection to: ${url}`);
 
