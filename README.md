@@ -1,6 +1,22 @@
 # Zotero S3 同步插件
 
+[![版本](https://img.shields.io/github/v/release/John10240/zotero-plugin2)](https://github.com/John10240/zotero-plugin2/releases)
+[![许可证](https://img.shields.io/github/license/John10240/zotero-plugin2)](LICENSE)
+[![下载量](https://img.shields.io/github/downloads/John10240/zotero-plugin2/total)](https://github.com/John10240/zotero-plugin2/releases)
+
 这是一个用于将 Zotero 附件同步到 S3 兼容存储的插件。
+
+> **⚠️ 测试版本警告**
+>
+> 当前版本为 **v0.1.0 测试版**，功能尚在开发中。使用前请：
+> - 📦 备份你的 Zotero 数据库和附件
+> - 🧪 在测试环境中先试用
+> - 🐛 遇到问题请提交 [Issue](https://github.com/John10240/zotero-plugin2/issues)
+>
+> **已知限制**：
+> - ⏳ 暂不支持自动同步（计划中）
+> - ⏳ 暂不支持从 S3 下载文件的 UI 集成（API 已实现）
+> - ⏳ 暂不支持自动删除 S3 上的文件
 
 ## 功能特性
 
@@ -13,11 +29,24 @@
 
 ## 安装
 
-1. 从 Releases 页面下载最新的 `.xpi` 文件
-2. 在 Zotero 中，打开 工具 -> 插件
-3. 点击右上角的齿轮图标，选择 "从文件安装插件"
+### 正式版安装
+
+1. 从 [Releases 页面](https://github.com/John10240/zotero-plugin2/releases) 下载最新的 `.xpi` 文件
+2. 在 Zotero 中，打开 **工具 → 插件**
+3. 点击右上角的齿轮图标，选择 **"从文件安装插件"**
 4. 选择下载的 `.xpi` 文件
 5. 重启 Zotero
+
+### 测试版安装
+
+如果你想测试开发中的功能，可以从 [Actions](https://github.com/John10240/zotero-plugin2/actions) 页面下载最新构建的测试版本。
+
+**注意**：测试版可能不稳定，请谨慎使用！
+
+### 系统要求
+
+- Zotero 7.0+ (Beta 版本)
+- Windows / macOS / Linux
 
 ## 配置
 
@@ -83,6 +112,37 @@
 3. 将哈希值与上次同步时的哈希值对比
 4. 只上传有变化的文件到 S3
 5. 记录同步时间和文件哈希值
+
+## 版本历史
+
+### v0.1.0 (测试版) - 当前版本
+
+**新功能**：
+- ✨ 实现 S3 客户端和同步管理器
+- ✨ 支持手动同步到 S3
+- ✨ 连接测试功能
+- ✨ 增量同步支持
+- ✨ 多语言支持（中文/英文）
+
+**开发功能**：
+- 🚧 自动同步（计划中）
+- 🚧 从 S3 下载文件 UI（API 已实现）
+- 🚧 文件删除功能
+
+查看完整的 [版本发布记录](https://github.com/John10240/zotero-plugin2/releases)
+
+## 贡献与反馈
+
+### 报告问题
+
+如果你遇到 Bug 或有功能建议，请：
+1. 查看 [已知问题](https://github.com/John10240/zotero-plugin2/issues)
+2. 如果问题未被报告，[创建新 Issue](https://github.com/John10240/zotero-plugin2/issues/new)
+3. 提供详细信息：Zotero 版本、操作系统、错误日志等
+
+### 参与开发
+
+欢迎提交 Pull Request！请查看下方的开发部分了解如何构建项目。
 
 ## 开发
 
