@@ -212,122 +212,177 @@ export class SyncManager {
     localCount: number,
     remoteCount: number,
   ): Promise<"upload-all" | "download-all" | "merge" | "cancel"> {
+    ztoolkit.log("显示首次同步策略对话框");
     return new Promise((resolve) => {
       const dialogData: { [key: string | number | symbol]: any } = {
         resolution: null,
       };
+      let isResolved = false; // 防止重复 resolve
 
-      const dialogWindow = new ztoolkit.Dialog(4, 1)
-        .setDialogData(dialogData)
-        .addCell(0, 0, {
-          tag: "h2",
-          properties: {
-            innerHTML: "首次同步到新存储桶",
-          },
-        })
-        .addCell(1, 0, {
-          tag: "div",
-          properties: {
-            innerHTML: `检测到这是首次同步到此存储桶。<br><br>本地有 <b>${localCount}</b> 个文件，远程有 <b>${remoteCount}</b> 个文件。<br><br>请选择同步策略：`,
-          },
-        })
-        .addCell(2, 0, {
-          tag: "div",
-          styles: {
-            marginTop: "10px",
-            marginBottom: "10px",
-            padding: "10px",
-            backgroundColor: "#fff3cd",
-            borderLeft: "4px solid #ffc107",
-          },
-          properties: {
-            innerHTML: `⚠️ <b>重要提示</b>：<br>
-            • 上传到云端：会覆盖云端的同名文件<br>
-            • 从云端下载：会覆盖本地的同名文件<br>
-            • 合并：保留双方文件，但可能产生冲突`,
-          },
-        })
-        .addCell(3, 0, {
-          tag: "div",
-          styles: {
-            display: "flex",
-            gap: "10px",
-            justifyContent: "center",
-            marginTop: "20px",
-          },
-          children: [
-            {
-              tag: "button",
-              properties: {
-                innerHTML: "上传到云端",
-              },
-              listeners: [
-                {
-                  type: "click",
-                  listener: () => {
-                    dialogData.resolution = "upload-all";
-                    dialogWindow.window?.close();
-                  },
-                },
-              ],
+      const handleClose = (resolution: "upload-all" | "download-all" | "merge" | "cancel") => {
+        if (isResolved) return;
+        isResolved = true;
+        ztoolkit.log("对话框关闭，选择：", resolution);
+        resolve(resolution);
+      };
+
+      try {
+        const dialogWindow = new ztoolkit.Dialog(7, 1)
+          .setDialogData(dialogData)
+          .addCell(0, 0, {
+            tag: "h2",
+            namespace: "html",
+            properties: {
+              innerHTML: "首次同步到新存储桶",
             },
-            {
-              tag: "button",
-              properties: {
-                innerHTML: "从云端下载",
-              },
-              listeners: [
-                {
-                  type: "click",
-                  listener: () => {
-                    dialogData.resolution = "download-all";
-                    dialogWindow.window?.close();
-                  },
-                },
-              ],
+          })
+          .addCell(1, 0, {
+            tag: "div",
+            namespace: "html",
+            properties: {
+              innerHTML: `检测到这是首次同步到此存储桶。<br><br>本地有 <b>${localCount}</b> 个文件，远程有 <b>${remoteCount}</b> 个文件。<br><br>请选择同步策略：`,
             },
-            {
-              tag: "button",
-              properties: {
-                innerHTML: "合并（推荐）",
-              },
-              listeners: [
-                {
-                  type: "click",
-                  listener: () => {
-                    dialogData.resolution = "merge";
-                    dialogWindow.window?.close();
-                  },
-                },
-              ],
+          })
+          .addCell(2, 0, {
+            tag: "div",
+            namespace: "html",
+            styles: {
+              marginTop: "10px",
+              marginBottom: "10px",
+              padding: "10px",
+              backgroundColor: "#fff3cd",
+              borderLeft: "4px solid #ffc107",
             },
-            {
-              tag: "button",
-              properties: {
-                innerHTML: "取消",
-              },
-              listeners: [
-                {
-                  type: "click",
-                  listener: () => {
-                    dialogData.resolution = "cancel";
-                    dialogWindow.window?.close();
-                  },
-                },
-              ],
+            properties: {
+              innerHTML: `⚠️ <b>重要提示</b>：<br>
+              • 上传到云端：会覆盖云端的同名文件<br>
+              • 从云端下载：会覆盖本地的同名文件<br>
+              • 合并：保留双方文件，但可能产生冲突`,
             },
-          ],
-        })
-        .open("首次同步策略选择", {
-          width: 600,
-          height: 350,
-          centerscreen: true,
-          resizable: false,
+          })
+          .addCell(3, 0, {
+            tag: "button",
+            namespace: "html",
+            styles: {
+              marginTop: "20px",
+              padding: "10px 20px",
+              fontSize: "14px",
+            },
+            properties: {
+              textContent: "上传到云端",
+            },
+            listeners: [
+              {
+                type: "click",
+                listener: () => {
+                  ztoolkit.log("用户选择：上传到云端");
+                  dialogData.resolution = "upload-all";
+                  // 先关闭窗口再 resolve，避免竞争条件
+                  dialogWindow.window?.close();
+                  // 延迟确保窗口关闭完成
+                  setTimeout(() => handleClose("upload-all"), 50);
+                },
+              },
+            ],
+          })
+          .addCell(4, 0, {
+            tag: "button",
+            namespace: "html",
+            styles: {
+              marginTop: "5px",
+              padding: "10px 20px",
+              fontSize: "14px",
+            },
+            properties: {
+              textContent: "从云端下载",
+            },
+            listeners: [
+              {
+                type: "click",
+                listener: () => {
+                  ztoolkit.log("用户选择：从云端下载");
+                  dialogData.resolution = "download-all";
+                  dialogWindow.window?.close();
+                  setTimeout(() => handleClose("download-all"), 50);
+                },
+              },
+            ],
+          })
+          .addCell(5, 0, {
+            tag: "button",
+            namespace: "html",
+            styles: {
+              marginTop: "5px",
+              padding: "10px 20px",
+              fontSize: "14px",
+              fontWeight: "bold",
+            },
+            properties: {
+              textContent: "合并（推荐）",
+            },
+            listeners: [
+              {
+                type: "click",
+                listener: () => {
+                  ztoolkit.log("用户选择：合并");
+                  dialogData.resolution = "merge";
+                  dialogWindow.window?.close();
+                  setTimeout(() => handleClose("merge"), 50);
+                },
+              },
+            ],
+          })
+          .addCell(6, 0, {
+            tag: "button",
+            namespace: "html",
+            styles: {
+              marginTop: "5px",
+              padding: "10px 20px",
+              fontSize: "14px",
+            },
+            properties: {
+              textContent: "取消",
+            },
+            listeners: [
+              {
+                type: "click",
+                listener: () => {
+                  ztoolkit.log("用户选择：取消");
+                  dialogData.resolution = "cancel";
+                  dialogWindow.window?.close();
+                  setTimeout(() => handleClose("cancel"), 50);
+                },
+              },
+            ],
+          })
+          .open("首次同步策略选择", {
+            width: 500,
+            height: 400,
+            centerscreen: true,
+            resizable: false,
+          });
+
+        ztoolkit.log("对话框已创建", dialogWindow.window ? "窗口存在" : "窗口不存在");
+
+        if (!dialogWindow.window) {
+          ztoolkit.log("警告：对话框窗口创建失败");
+          handleClose("cancel");
+          return;
+        }
+
+        // 监听窗口 unload 事件作为后备
+        dialogWindow.window.addEventListener("unload", () => {
+          // 如果还没有 resolve，使用 dialogData.resolution 或默认 cancel
+          setTimeout(() => {
+            if (!isResolved) {
+              handleClose(dialogData.resolution || "cancel");
+            }
+          }, 100);
         });
-
-      dialogWindow.window?.addEventListener("unload", () => {
-        resolve(dialogData.resolution || "cancel");
-      });
+      } catch (error) {
+        ztoolkit.log("创建对话框失败:", error);
+        handleClose("cancel");
+      }
     });
   }
 
@@ -1737,93 +1792,135 @@ export class SyncManager {
   private async showConflictDialog(
     conflictCount: number,
   ): Promise<"upload" | "download" | "cancel"> {
+    ztoolkit.log(`显示冲突解决对话框，冲突数量：${conflictCount}`);
     return new Promise((resolve) => {
       const dialogData: { [key: string | number | symbol]: any } = {
         conflictCount,
         resolution: null,
       };
+      let isResolved = false; // 防止重复 resolve
 
-      const dialogWindow = new ztoolkit.Dialog(3, 1)
-        .setDialogData(dialogData)
-        .addCell(0, 0, {
-          tag: "h2",
-          properties: {
-            innerHTML: "同步冲突",
-          },
-        })
-        .addCell(1, 0, {
-          tag: "div",
-          properties: {
-            innerHTML: `发现 ${conflictCount} 个文件在云端和本地都有修改。<br><br>请选择如何处理：`,
-          },
-        })
-        .addCell(2, 0, {
-          tag: "div",
-          styles: {
-            display: "flex",
-            gap: "10px",
-            justifyContent: "center",
-            marginTop: "20px",
-          },
-          children: [
-            {
-              tag: "button",
-              properties: {
-                innerHTML: "使用本地覆盖云端",
-              },
-              listeners: [
-                {
-                  type: "click",
-                  listener: () => {
-                    dialogData.resolution = "upload";
-                    dialogWindow.window?.close();
-                  },
-                },
-              ],
+      const handleClose = (resolution: "upload" | "download" | "cancel") => {
+        if (isResolved) return;
+        isResolved = true;
+        ztoolkit.log("冲突对话框关闭，选择：", resolution);
+        resolve(resolution);
+      };
+
+      try {
+        const dialogWindow = new ztoolkit.Dialog(5, 1)
+          .setDialogData(dialogData)
+          .addCell(0, 0, {
+            tag: "h2",
+            namespace: "html",
+            properties: {
+              innerHTML: "同步冲突",
             },
-            {
-              tag: "button",
-              properties: {
-                innerHTML: "使用云端覆盖本地",
-              },
-              listeners: [
-                {
-                  type: "click",
-                  listener: () => {
-                    dialogData.resolution = "download";
-                    dialogWindow.window?.close();
-                  },
-                },
-              ],
+          })
+          .addCell(1, 0, {
+            tag: "div",
+            namespace: "html",
+            properties: {
+              innerHTML: `发现 ${conflictCount} 个文件在云端和本地都有修改。<br><br>请选择如何处理：`,
             },
-            {
-              tag: "button",
-              properties: {
-                innerHTML: "取消同步",
-              },
-              listeners: [
-                {
-                  type: "click",
-                  listener: () => {
-                    dialogData.resolution = "cancel";
-                    dialogWindow.window?.close();
-                  },
-                },
-              ],
+          })
+          .addCell(2, 0, {
+            tag: "button",
+            namespace: "html",
+            styles: {
+              marginTop: "20px",
+              padding: "10px 20px",
+              fontSize: "14px",
             },
-          ],
-        })
-        .open("同步冲突", {
-          width: 500,
-          height: 250,
-          centerscreen: true,
-          resizable: false,
+            properties: {
+              textContent: "使用本地覆盖云端",
+            },
+            listeners: [
+              {
+                type: "click",
+                listener: () => {
+                  ztoolkit.log("用户选择：使用本地覆盖云端");
+                  dialogData.resolution = "upload";
+                  dialogWindow.window?.close();
+                  setTimeout(() => handleClose("upload"), 50);
+                },
+              },
+            ],
+          })
+          .addCell(3, 0, {
+            tag: "button",
+            namespace: "html",
+            styles: {
+              marginTop: "5px",
+              padding: "10px 20px",
+              fontSize: "14px",
+            },
+            properties: {
+              textContent: "使用云端覆盖本地",
+            },
+            listeners: [
+              {
+                type: "click",
+                listener: () => {
+                  ztoolkit.log("用户选择：使用云端覆盖本地");
+                  dialogData.resolution = "download";
+                  dialogWindow.window?.close();
+                  setTimeout(() => handleClose("download"), 50);
+                },
+              },
+            ],
+          })
+          .addCell(4, 0, {
+            tag: "button",
+            namespace: "html",
+            styles: {
+              marginTop: "5px",
+              padding: "10px 20px",
+              fontSize: "14px",
+            },
+            properties: {
+              textContent: "取消同步",
+            },
+            listeners: [
+              {
+                type: "click",
+                listener: () => {
+                  ztoolkit.log("用户选择：取消同步");
+                  dialogData.resolution = "cancel";
+                  dialogWindow.window?.close();
+                  setTimeout(() => handleClose("cancel"), 50);
+                },
+              },
+            ],
+          })
+          .open("同步冲突", {
+            width: 500,
+            height: 300,
+            centerscreen: true,
+            resizable: false,
+          });
+
+        ztoolkit.log("冲突对话框已创建", dialogWindow.window ? "窗口存在" : "窗口不存在");
+
+        if (!dialogWindow.window) {
+          ztoolkit.log("警告：冲突对话框窗口创建失败");
+          handleClose("cancel");
+          return;
+        }
+
+        // 监听窗口 unload 事件作为后备
+        dialogWindow.window.addEventListener("unload", () => {
+          // 如果还没有 resolve，使用 dialogData.resolution 或默认 cancel
+          setTimeout(() => {
+            if (!isResolved) {
+              handleClose(dialogData.resolution || "cancel");
+            }
+          }, 100);
         });
-
-      // Wait for dialog to close
-      dialogWindow.window?.addEventListener("unload", () => {
-        resolve(dialogData.resolution || "cancel");
-      });
+      } catch (error) {
+        ztoolkit.log("创建冲突对话框失败:", error);
+        handleClose("cancel");
+      }
     });
   }
 
