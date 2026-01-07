@@ -1,7 +1,7 @@
 {
   "name": "zotero-s3-sync",
   "type": "module",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Sync Zotero attachments to S3-compatible storage",
   "config": {
     "addonName": "Zotero S3 Sync",
