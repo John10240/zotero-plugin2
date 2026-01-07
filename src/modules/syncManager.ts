@@ -36,6 +36,7 @@ interface SyncItem {
   filePath: string;
   hash: string;
   lastSync: number;
+  modTime: number;
 }
 
 interface SyncConflict {
@@ -65,7 +66,9 @@ export class SyncManager {
   /**
    * Compare local and remote files and determine sync operations
    */
-  private async compareFilesAndDetermineSyncOperations(): Promise<SyncOperations> {
+  private async compareFilesAndDetermineSyncOperations(
+    isIncremental: boolean,
+  ): Promise<SyncOperations> {
     const operations: SyncOperations = {
       upload: [],
       download: [],
@@ -80,21 +83,25 @@ export class SyncManager {
       string,
       { hash: string; filePath: string; modTime: number }
     >();
-    const localAttachments = await this.getAllAttachments();
+    let localAttachments = await this.getAllAttachments(isIncremental);
+    if (isIncremental) {
+      localAttachments = this.filterForIncrementalSync(localAttachments);
+    }
 
     for (const attachment of localAttachments) {
       localFiles.set(attachment.attachmentKey, {
         hash: attachment.hash,
         filePath: attachment.filePath,
-        modTime: attachment.filePath
-          ? await this.getFileModTime(attachment.filePath)
-          : 0,
+        modTime: attachment.modTime,
       });
     }
 
     // Get all remote files
     const prefix = (getPref("s3.prefix") as string) || "zotero-attachments";
-    const remoteFiles = await this.s3Manager.listFilesWithMetadata(prefix);
+    const remoteFiles = await this.s3Manager.listFilesWithMetadata(
+      prefix,
+      true,
+    );
     const remoteFilesMap = new Map<string, S3FileMetadata>();
 
     ztoolkit.log(`获取到 ${remoteFiles.length} 个远程文件（prefix: ${prefix}）`);
@@ -114,7 +121,9 @@ export class SyncManager {
 
     for (const remoteFile of remoteFiles) {
       // Extract attachment key from S3 key (remove prefix)
-      const attachmentKey = remoteFile.key.replace(`${prefix}/`, "");
+      const attachmentKey = remoteFile.key.startsWith(`${prefix}/`)
+        ? remoteFile.key.slice(prefix.length + 1)
+        : remoteFile.key;
       remoteFilesMap.set(attachmentKey, remoteFile);
       ztoolkit.log(`远程文件: ${remoteFile.key} -> attachment key: ${attachmentKey}`);
     }
@@ -122,7 +131,15 @@ export class SyncManager {
     ztoolkit.log(`本地文件数量: ${localFiles.size}, 远程文件数量: ${remoteFilesMap.size}`);
 
     // Get all metadata (last sync state)
-    const allMetadata = this.metadataManager.getAllFileMetadata();
+    ztoolkit.log("正在获取元数据...");
+    let allMetadata;
+    try {
+      allMetadata = this.metadataManager.getAllFileMetadata();
+      ztoolkit.log(`元数据记录数量: ${Object.keys(allMetadata).length}`);
+    } catch (error) {
+      ztoolkit.log("获取元数据失败:", error);
+      allMetadata = {};
+    }
 
     // Combine all keys from local, remote, and metadata
     const allKeys = new Set([
@@ -131,41 +148,58 @@ export class SyncManager {
       ...Object.keys(allMetadata),
     ]);
 
+    ztoolkit.log(`=== 开始分析 ${allKeys.size} 个文件 ===`);
+
     // Analyze each file
+    let processedCount = 0;
     for (const attachmentKey of allKeys) {
+      processedCount++;
+      ztoolkit.log(`[${processedCount}/${allKeys.size}] 正在分析: ${attachmentKey}`);
+
       const local = localFiles.get(attachmentKey);
       const remote = remoteFilesMap.get(attachmentKey);
       const metadata = allMetadata[attachmentKey];
 
-      const operation = this.determineOperation(
-        attachmentKey,
-        local,
-        remote,
-        metadata,
-      );
+      ztoolkit.log(`  - local存在: ${!!local}, remote存在: ${!!remote}, metadata存在: ${!!metadata}`);
 
-      // Categorize operation
-      switch (operation.type) {
-        case "upload":
-          operations.upload.push(operation);
-          break;
-        case "download":
-          operations.download.push(operation);
-          break;
-        case "conflict":
-          operations.conflicts.push(operation);
-          break;
-        case "delete-local":
-          operations.deleteLocal.push(operation);
-          break;
-        case "delete-remote":
-          operations.deleteRemote.push(operation);
-          break;
-        case "no-change":
-          operations.noChange.push(operation);
-          break;
+      try {
+        const operation = await this.determineOperation(
+          attachmentKey,
+          local,
+          remote,
+          metadata,
+        );
+
+        ztoolkit.log(`  - 决策结果: ${operation.type}`);
+
+        // Categorize operation
+        switch (operation.type) {
+          case "upload":
+            operations.upload.push(operation);
+            break;
+          case "download":
+            operations.download.push(operation);
+            break;
+          case "conflict":
+            operations.conflicts.push(operation);
+            break;
+          case "delete-local":
+            operations.deleteLocal.push(operation);
+            break;
+          case "delete-remote":
+            operations.deleteRemote.push(operation);
+            break;
+          case "no-change":
+            operations.noChange.push(operation);
+            break;
+        }
+      } catch (error) {
+        ztoolkit.log(`  - 决策过程出错:`, error);
+        // 出错时默认不操作
       }
     }
+
+    ztoolkit.log("=== 文件分析完成 ===");
 
     return operations;
   }
@@ -173,11 +207,12 @@ export class SyncManager {
   /**
    * Get all attachments from all libraries
    */
-  private async getAllAttachments(): Promise<SyncItem[]> {
+  private async getAllAttachments(isIncremental: boolean): Promise<SyncItem[]> {
     const items: SyncItem[] = [];
 
     try {
       const libraries = Zotero.Libraries.getAll();
+      const lastFullSync = this.metadataManager.getLastFullSync();
 
       for (const library of libraries) {
         if (!library.filesEditable) {
@@ -197,16 +232,29 @@ export class SyncManager {
 
           if (item && item.isAttachment() && item.isFileAttachment()) {
             const file = await item.getFilePathAsync();
+            const lastSync = this.getLastSyncTime(item.key);
 
             if (file) {
               // File exists locally
-              const hash = await this.getFileHash(file);
+              const modTime = await this.getFileModTime(file);
+              const shouldHash =
+                !isIncremental ||
+                lastFullSync === 0 ||
+                lastSync === 0 ||
+                modTime === 0 ||
+                modTime > lastFullSync;
+
+              const hash = shouldHash
+                ? await this.getFileHash(file)
+                : this.getStoredHash(item.key) || (await this.getFileHash(file));
+
               items.push({
                 itemID: item.id,
                 attachmentKey: item.key,
                 filePath: file,
-                hash: hash,
-                lastSync: this.getLastSyncTime(item.key),
+                hash,
+                lastSync,
+                modTime,
               });
             } else {
               // File doesn't exist locally but item exists in Zotero
@@ -218,7 +266,8 @@ export class SyncManager {
                 attachmentKey: item.key,
                 filePath: "", // Empty path indicates file doesn't exist
                 hash: "", // Empty hash
-                lastSync: this.getLastSyncTime(item.key),
+                lastSync,
+                modTime: 0,
               });
             }
           }
@@ -261,17 +310,22 @@ export class SyncManager {
    */
   private filterForIncrementalSync(items: SyncItem[]): SyncItem[] {
     const lastFullSync = this.metadataManager.getLastFullSync();
+    if (lastFullSync === 0) {
+      return items;
+    }
 
     return items.filter((item) => {
-      // Include if never synced
+      // Always include missing files so we can recover from remote
+      if (!item.filePath) {
+        return true;
+      }
+
+      // Include if never synced or modified since last full sync
       if (item.lastSync === 0) {
         return true;
       }
 
-      // Include if modified since last full sync
-      // We'll check the file modification time
-      return true; // For now, include all in the comparison logic
-      // The three-way merge will determine what actually needs syncing
+      return item.modTime === 0 || item.modTime > lastFullSync;
     });
   }
 
@@ -279,12 +333,12 @@ export class SyncManager {
    * Three-way merge decision engine
    * Determines what operation to perform based on local, remote, and last sync state
    */
-  private determineOperation(
+  private async determineOperation(
     attachmentKey: string,
     local: { hash: string; filePath: string; modTime: number } | undefined,
     remote: S3FileMetadata | undefined,
     metadata: any,
-  ): SyncOperation {
+  ): Promise<SyncOperation> {
     const lastSyncHash = metadata?.lastSyncHash;
     const lastSyncTime = metadata?.lastSyncTime || 0;
 
@@ -298,6 +352,14 @@ export class SyncManager {
 
     // Case 2: File exists locally and remotely
     if (local && remote) {
+      // Debug logging
+      ztoolkit.log(`[决策分析] ${attachmentKey}:`);
+      ztoolkit.log(`  本地 hash: ${local.hash}`);
+      ztoolkit.log(`  远程 metaMd5: ${remote.metaMd5 || '(无)'}`);
+      ztoolkit.log(`  远程 etag: ${remote.etag}`);
+      ztoolkit.log(`  上次同步 hash: ${lastSyncHash || '(无)'}`);
+      ztoolkit.log(`  远程大小: ${remote.size}`);
+
       // Special case: Local file doesn't exist (empty hash) but item exists
       // This means the file was deleted or never downloaded - should download
       if (local.hash === "") {
@@ -316,42 +378,81 @@ export class SyncManager {
 
       // First sync: no lastSyncHash available
       if (!lastSyncHash) {
+        ztoolkit.log(`  首次同步，没有 lastSyncHash`);
+        const remoteHash = remote.metaMd5 || remote.etag;
         // Compare local and remote directly
-        if (local.hash === remote.etag) {
+        if (local.hash === remoteHash) {
           // Files are identical, record as synced
+          ztoolkit.log(`  本地 hash 与远程 hash 相同，标记为无变化`);
           return {
             type: "no-change",
             attachmentKey,
             localHash: local.hash,
-            remoteETag: remote.etag,
+            remoteETag: remoteHash,
+            filePath: local.filePath,
+            remoteModTime: remote.lastModified,
           };
         }
 
         // Files are different on first sync
+        // If remote hash is unreliable (no metaMd5) but size matches, assume no-change to avoid redundant downloads
+        if (!remote.metaMd5 && remote.size > 0 && local.filePath) {
+          const localSize = await this.getFileSize(local.filePath);
+          ztoolkit.log(`  本地大小: ${localSize}, 远程大小: ${remote.size}`);
+          if (localSize === remote.size) {
+            ztoolkit.log(`  没有 metaMd5 但大小相同，标记为无变化`);
+            return {
+              type: "no-change",
+              attachmentKey,
+              localHash: local.hash,
+              remoteETag: remoteHash,
+              filePath: local.filePath,
+              remoteModTime: remote.lastModified,
+            };
+          }
+        }
+
         // Default behavior: use local (upload) as it's likely more recent
-        // Or could use modification time to decide
-        if (local.modTime > remote.lastModified) {
+        // Or use modification time to decide when hashes differ
+        if (local.modTime >= remote.lastModified) {
+          ztoolkit.log(`  本地修改时间较新，标记为上传`);
           return {
             type: "upload",
             attachmentKey,
             localHash: local.hash,
-            remoteETag: remote.etag,
-            filePath: local.filePath,
-          };
-        } else {
-          return {
-            type: "download",
-            attachmentKey,
-            localHash: local.hash,
-            remoteETag: remote.etag,
+            remoteETag: remoteHash,
             filePath: local.filePath,
           };
         }
+
+        ztoolkit.log(`  远程修改时间较新，标记为下载`);
+        return {
+          type: "download",
+          attachmentKey,
+          localHash: local.hash,
+          remoteETag: remoteHash,
+          filePath: local.filePath,
+        };
       }
 
       // Subsequent syncs: compare with lastSyncHash
+      const remoteHash = remote.metaMd5 || remote.etag;
       const localChanged = local.hash !== lastSyncHash;
-      const remoteChanged = remote.etag !== lastSyncHash;
+      // If we have a stored sync hash but remote has no reliable checksum, trust local state
+      if (!remote.metaMd5 && lastSyncHash && local.hash === lastSyncHash) {
+        return {
+          type: "no-change",
+          attachmentKey,
+          localHash: local.hash,
+          remoteETag: remoteHash,
+          filePath: local.filePath,
+          remoteModTime: remote.lastModified,
+        };
+      }
+      // If remote hash is unreliable (no metaMd5), assume remote unchanged unless meta is present
+      const remoteChanged = remote.metaMd5
+        ? remoteHash !== lastSyncHash
+        : false;
 
       // Both unchanged
       if (!localChanged && !remoteChanged) {
@@ -359,7 +460,9 @@ export class SyncManager {
           type: "no-change",
           attachmentKey,
           localHash: local.hash,
-          remoteETag: remote.etag,
+          remoteETag: remoteHash,
+          filePath: local.filePath,
+          remoteModTime: remote.lastModified,
         };
       }
 
@@ -369,7 +472,7 @@ export class SyncManager {
           type: "upload",
           attachmentKey,
           localHash: local.hash,
-          remoteETag: remote.etag,
+          remoteETag: remoteHash,
           lastSyncHash,
           filePath: local.filePath,
         };
@@ -381,7 +484,7 @@ export class SyncManager {
           type: "download",
           attachmentKey,
           localHash: local.hash,
-          remoteETag: remote.etag,
+          remoteETag: remoteHash,
           lastSyncHash,
           filePath: local.filePath,
         };
@@ -392,7 +495,7 @@ export class SyncManager {
         type: "conflict",
         attachmentKey,
         localHash: local.hash,
-        remoteETag: remote.etag,
+        remoteETag: remoteHash,
         localModTime: local.modTime,
         remoteModTime: remote.lastModified,
         lastSyncHash,
@@ -580,11 +683,16 @@ export class SyncManager {
         return false;
       }
 
-      const success = await this.s3Manager.uploadFile(blob, s3Key);
+      const hash = await this.getFileHash(operation.filePath);
+      const success = await this.s3Manager.uploadFile(
+        blob,
+        s3Key,
+        undefined,
+        hash,
+      );
 
       if (success) {
         // Update metadata
-        const hash = await this.getFileHash(operation.filePath);
         const localMtime = await this.getFileModTime(operation.filePath);
         const remoteMtime = await this.s3Manager.getFileModTime(s3Key);
         const fileSize = await this.getFileSize(operation.filePath);
@@ -794,6 +902,9 @@ export class SyncManager {
   }
 
   public async syncAttachments(): Promise<void> {
+    ztoolkit.log("=== syncAttachments 开始执行 ===");
+    ztoolkit.log("代码版本: 0.1.20-debug");
+
     if (this.isSyncing) {
       ztoolkit.log("Sync already in progress");
       return;
@@ -836,7 +947,9 @@ export class SyncManager {
         progress: 5,
       });
 
-      const operations = await this.compareFilesAndDetermineSyncOperations();
+      const operations = await this.compareFilesAndDetermineSyncOperations(
+        isIncremental,
+      );
 
       const totalOperations =
         operations.upload.length +
@@ -984,11 +1097,21 @@ export class SyncManager {
           );
           if (!metadata || !metadata.lastSyncHash) {
             // First time detecting this file is synced, record it
-            this.metadataManager.updateFileMetadata(op.attachmentKey, {
-              hash: op.localHash,
-              lastSyncHash: op.localHash,
-              lastSyncTime: Date.now(),
-            });
+            // Get file information
+            let localMtime = 0;
+            let fileSize = 0;
+            if (op.filePath) {
+              localMtime = await this.getFileModTime(op.filePath);
+              fileSize = await this.getFileSize(op.filePath);
+            }
+
+            this.metadataManager.recordSync(
+              op.attachmentKey,
+              op.localHash,
+              localMtime,
+              op.remoteModTime || Date.now(),
+              fileSize,
+            );
           }
         }
       }

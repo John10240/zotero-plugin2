@@ -5,6 +5,7 @@ export interface S3FileMetadata {
   lastModified: number;
   size: number;
   etag: string; // S3's ETag (MD5 hash for simple uploads)
+  metaMd5?: string; // Custom checksum stored as x-amz-meta-md5
 }
 
 export class S3Manager {
@@ -58,11 +59,20 @@ export class S3Manager {
     this.initializeClient();
   }
 
+  private encodeKey(key: string): string {
+    // Encode each segment so special chars are signed correctly while keeping '/'
+    return key
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+  }
+
   private getUrl(key: string): string {
     const endpoint = this.endpoint.replace(/\/$/, "");
     // Force path-style URLs for all S3 services (including AWS)
     // Format: https://endpoint/bucket-name/key
-    return `${endpoint}/${this.bucketName}/${key}`;
+    const encodedKey = this.encodeKey(key);
+    return `${endpoint}/${this.bucketName}/${encodedKey}`;
   }
 
   private async sha256Hex(data: string | Uint8Array): Promise<string> {
@@ -182,6 +192,7 @@ export class S3Manager {
     file: Blob,
     key: string,
     onProgress?: (progress: number) => void,
+    contentMd5?: string,
   ): Promise<boolean> {
     if (!this.isConfigured()) {
       ztoolkit.log("S3 client not configured");
@@ -196,6 +207,9 @@ export class S3Manager {
       const headers: Record<string, string> = {
         "Content-Type": file.type || "application/octet-stream",
       };
+      if (contentMd5) {
+        headers["x-amz-meta-md5"] = contentMd5;
+      }
 
       const signedHeaders = await this.signRequest(
         "PUT",
@@ -375,6 +389,7 @@ export class S3Manager {
 
   public async listFilesWithMetadata(
     prefix: string = "",
+    fetchMetadata: boolean = false,
   ): Promise<S3FileMetadata[]> {
     if (!this.isConfigured()) {
       return [];
@@ -382,86 +397,191 @@ export class S3Manager {
 
     try {
       const endpoint = this.endpoint.replace(/\/$/, "");
-      const url = `${endpoint}/${this.bucketName}?prefix=${encodeURIComponent(prefix)}`;
+      const files: S3FileMetadata[] = [];
+      let continuationToken: string | null = null;
+      let page = 1;
 
-      const headers: Record<string, string> = {};
-      const signedHeaders = await this.signRequest("GET", url, headers);
+      while (true) {
+        const params = new URLSearchParams();
+        params.set("list-type", "2");
+        params.set("prefix", prefix);
+        if (continuationToken) {
+          params.set("continuation-token", continuationToken);
+        }
 
-      const xhr = new XMLHttpRequest();
-      xhr.open("GET", url, true);
+        const url = `${endpoint}/${this.bucketName}?${params.toString()}`;
+        const headers: Record<string, string> = {};
+        const signedHeaders = await this.signRequest("GET", url, headers);
 
-      Object.keys(signedHeaders).forEach((key) => {
-        xhr.setRequestHeader(key, signedHeaders[key]);
-      });
+        // eslint-disable-next-line no-await-in-loop
+        const pageData = await new Promise<{
+          items: S3FileMetadata[];
+          nextToken: string | null;
+          isTruncated: boolean;
+        }>((resolve) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("GET", url, true);
 
-      return new Promise((resolve) => {
-        xhr.onload = () => {
-          ztoolkit.log(
-            `S3 listFiles response: status=${xhr.status}, responseLength=${xhr.responseText?.length || 0}`,
-          );
+          Object.keys(signedHeaders).forEach((key) => {
+            xhr.setRequestHeader(key, signedHeaders[key]);
+          });
 
-          if (xhr.status >= 200 && xhr.status < 300) {
-            // Parse XML response
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(
-              xhr.responseText || "",
-              "text/xml",
+          xhr.onload = () => {
+            ztoolkit.log(
+              `S3 listFiles page ${page} response: status=${xhr.status}, length=${xhr.responseText?.length || 0}`,
             );
-            const files: S3FileMetadata[] = [];
-            const contents = xmlDoc.getElementsByTagName("Contents");
 
-            ztoolkit.log(`解析到 ${contents.length} 个 Contents 元素`);
-
-            // Log first 1000 chars of XML for debugging
-            if (xhr.responseText && xhr.responseText.length > 0) {
-              ztoolkit.log(
-                `XML 响应（前1000字符）: ${xhr.responseText.substring(0, 1000)}`,
+            if (xhr.status >= 200 && xhr.status < 300) {
+              const parser = new DOMParser();
+              const xmlDoc = parser.parseFromString(
+                xhr.responseText || "",
+                "text/xml",
               );
-            }
+              const contents = xmlDoc.getElementsByTagName("Contents");
+              const result: S3FileMetadata[] = [];
 
-            for (let i = 0; i < contents.length; i++) {
-              const content = contents[i];
-              const key =
-                content.getElementsByTagName("Key")[0]?.textContent || "";
-              const lastModified =
-                content.getElementsByTagName("LastModified")[0]?.textContent ||
-                "";
-              const size =
-                content.getElementsByTagName("Size")[0]?.textContent || "0";
-              const etag =
-                content.getElementsByTagName("ETag")[0]?.textContent || "";
+              // Log first 500 chars to help diagnose XML issues without flooding logs
+              if (xhr.responseText && xhr.responseText.length > 0) {
+                ztoolkit.log(
+                  `XML snippet: ${xhr.responseText.substring(0, 500)}`,
+                );
+              }
 
-              files.push({
-                key,
-                lastModified: lastModified
-                  ? new Date(lastModified).getTime()
-                  : 0,
-                size: parseInt(size, 10),
-                etag: etag.replace(/"/g, ""), // Remove quotes from ETag
+              for (let i = 0; i < contents.length; i++) {
+                const content = contents[i];
+                const key =
+                  content.getElementsByTagName("Key")[0]?.textContent || "";
+                const lastModified =
+                  content.getElementsByTagName("LastModified")[0]
+                    ?.textContent || "";
+                const size =
+                  content.getElementsByTagName("Size")[0]?.textContent || "0";
+                const etag =
+                  content.getElementsByTagName("ETag")[0]?.textContent || "";
+
+                result.push({
+                  key,
+                  lastModified: lastModified
+                    ? new Date(lastModified).getTime()
+                    : 0,
+                  size: parseInt(size, 10),
+                  etag: etag.replace(/"/g, ""), // Remove quotes from ETag
+                });
+              }
+
+              const nextToken =
+                xmlDoc.getElementsByTagName("NextContinuationToken")[0]
+                  ?.textContent || null;
+              const isTruncated =
+                xmlDoc.getElementsByTagName("IsTruncated")[0]?.textContent ===
+                "true";
+
+              resolve({
+                items: result,
+                nextToken,
+                isTruncated,
+              });
+            } else {
+              ztoolkit.log(
+                `S3 listFiles failed: ${xhr.status} ${xhr.statusText}`,
+              );
+              ztoolkit.log(`Response body: ${xhr.responseText}`);
+              resolve({
+                items: [],
+                nextToken: null,
+                isTruncated: false,
               });
             }
+          };
 
-            ztoolkit.log(`返回 ${files.length} 个文件`);
-            resolve(files);
-          } else {
-            ztoolkit.log(
-              `S3 listFiles 失败: ${xhr.status} ${xhr.statusText}`,
-            );
-            ztoolkit.log(`响应内容: ${xhr.responseText}`);
-            resolve([]);
+          xhr.onerror = () => {
+            ztoolkit.log("S3 listFiles network error");
+            resolve({
+              items: [],
+              nextToken: null,
+              isTruncated: false,
+            });
+          };
+
+          xhr.send();
+        });
+
+        files.push(...pageData.items);
+
+        continuationToken = pageData.nextToken;
+        if (!pageData.isTruncated || !continuationToken) {
+          break;
+        }
+        page += 1;
+      }
+
+      if (fetchMetadata && files.length > 0) {
+        // Fetch object metadata (x-amz-meta-md5) for better checksum comparison
+        for (const fileMeta of files) {
+          // eslint-disable-next-line no-await-in-loop
+          const meta = await this.getObjectMetadata(fileMeta.key);
+          if (meta?.metaMd5) {
+            fileMeta.metaMd5 = meta.metaMd5;
           }
-        };
+        }
+      }
 
-        xhr.onerror = () => {
-          ztoolkit.log("S3 listFiles 网络错误");
-          resolve([]);
-        };
-
-        xhr.send();
-      });
+      return files;
     } catch (error) {
       ztoolkit.log("Failed to list files:", error);
       return [];
+    }
+  }
+
+  /**
+   * Get object metadata (e.g., x-amz-meta-md5) via HEAD
+   */
+  public async getObjectMetadata(
+    key: string,
+  ): Promise<S3FileMetadata | null> {
+    if (!this.isConfigured()) {
+      return null;
+    }
+
+    try {
+      const url = this.getUrl(key);
+      const headers: Record<string, string> = {};
+      const signedHeaders = await this.signRequest("HEAD", url, headers);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("HEAD", url, true);
+
+      Object.keys(signedHeaders).forEach((k) => {
+        xhr.setRequestHeader(k, signedHeaders[k]);
+      });
+
+      return await new Promise<S3FileMetadata | null>((resolve) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const lastModified = xhr.getResponseHeader("Last-Modified");
+            const sizeHeader = xhr.getResponseHeader("Content-Length");
+            const etagHeader = xhr.getResponseHeader("ETag");
+            const metaMd5 = xhr.getResponseHeader("x-amz-meta-md5") || undefined;
+
+            resolve({
+              key,
+              lastModified: lastModified
+                ? new Date(lastModified).getTime()
+                : 0,
+              size: sizeHeader ? parseInt(sizeHeader, 10) : 0,
+              etag: etagHeader ? etagHeader.replace(/"/g, "") : "",
+              metaMd5,
+            });
+          } else {
+            resolve(null);
+          }
+        };
+
+        xhr.onerror = () => resolve(null);
+        xhr.send();
+      });
+    } catch (error) {
+      return null;
     }
   }
 
