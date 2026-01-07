@@ -345,6 +345,13 @@ export class SyncManager {
       const attachmentKey = remoteFile.key.startsWith(`${prefix}/`)
         ? remoteFile.key.slice(prefix.length + 1)
         : remoteFile.key;
+
+      // Skip metadata file
+      if (attachmentKey === SyncManager.METADATA_FILE_KEY) {
+        ztoolkit.log(`跳过元数据文件: ${remoteFile.key}`);
+        continue;
+      }
+
       remoteFilesMap.set(attachmentKey, remoteFile);
       ztoolkit.log(`远程文件: ${remoteFile.key} -> attachment key: ${attachmentKey}`);
     }
@@ -1184,7 +1191,7 @@ export class SyncManager {
 
   public async syncAttachments(): Promise<void> {
     ztoolkit.log("=== syncAttachments 开始执行 ===");
-    ztoolkit.log("代码版本: 0.1.22-cloud-metadata");
+    ztoolkit.log("代码版本: 0.1.23-with-first-sync-strategy");
 
     if (this.isSyncing) {
       ztoolkit.log("Sync already in progress");
