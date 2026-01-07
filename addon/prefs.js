@@ -15,3 +15,4 @@ pref("sync.syncInterval", 3600000); // 1 hour in milliseconds
 pref("conflictResolution", "ask");
 pref("sync.incremental", true);
 pref("sync.incrementalMaxDays", 7);
+pref("sync.concurrency", 3); // Number of concurrent upload/download operations

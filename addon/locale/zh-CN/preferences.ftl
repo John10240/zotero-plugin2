@@ -16,5 +16,6 @@ pref-conflict-resolution = 冲突解决策略:
 pref-incremental-sync =
     .label = 启用增量同步
 pref-incremental-max-days = 增量同步最大间隔:
+pref-sync-concurrency = 并发上传/下载数:
 
 pref-help = { $name } Build { $version } { $time }

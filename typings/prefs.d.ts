@@ -20,6 +20,7 @@ declare namespace _ZoteroTypes {
       "conflictResolution": string;
       "sync.incremental": boolean;
       "sync.incrementalMaxDays": number;
+      "sync.concurrency": number;
     };
   }
 }

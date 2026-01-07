@@ -19,7 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取完整历史用于生成 changelog
+          fetch-depth: 0 # full history for changelog
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -62,25 +62,14 @@ jobs:
         with:
           configuration: |
             {
+              "commitMode": true,
               "categories": [
-                {
-                  "title": "## 🚀 新功能",
-                  "labels": ["feat", "feature"]
-                },
-                {
-                  "title": "## 🐛 Bug 修复",
-                  "labels": ["fix", "bug"]
-                },
-                {
-                  "title": "## 📝 文档",
-                  "labels": ["docs", "documentation"]
-                },
-                {
-                  "title": "## 🔧 其他改进",
-                  "labels": ["chore", "refactor", "perf", "style", "test"]
-                }
+                { "title": "## 🚀 新功能", "labels": ["feat", "feature"] },
+                { "title": "## 🐛 Bug 修复", "labels": ["fix", "bug"] },
+                { "title": "## 📝 文档", "labels": ["docs", "documentation"] },
+                { "title": "## 🔧 其他改进", "labels": ["chore", "refactor", "perf", "style", "test"] }
               ],
-              "template": "#{{CHANGELOG}}\n\n**完整变更**: #{{RELEASE_DIFF}}"
+              "template": "#{{CHANGELOG}}\n\n## Commits\n#{{COMMITS}}\n\n**完整变更**: #{{RELEASE_DIFF}}"
             }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

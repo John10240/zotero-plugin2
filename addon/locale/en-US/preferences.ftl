@@ -16,5 +16,6 @@ pref-conflict-resolution = Conflict Resolution Strategy:
 pref-incremental-sync =
     .label = Enable Incremental Sync
 pref-incremental-max-days = Incremental Sync Max Interval:
+pref-sync-concurrency = Concurrent Upload/Download:
 
 pref-help = { $name } Build { $version } { $time }

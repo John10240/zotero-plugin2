@@ -27,6 +27,7 @@ export type FluentMessageId =
   | 'pref-s3-region'
   | 'pref-s3-secret-key'
   | 'pref-s3-title'
+  | 'pref-sync-concurrency'
   | 'pref-sync-title'
   | 'pref-test-connection'
   | 'pref-title'

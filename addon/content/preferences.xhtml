@@ -162,6 +162,23 @@
     ></html:input>
     <html:label style="margin-left: 5px">days (天)</html:label>
   </hbox>
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-concurrency"
+      data-l10n-id="pref-sync-concurrency"
+      style="min-width: 150px"
+    ></html:label>
+    <html:input
+      type="number"
+      id="zotero-prefpane-__addonRef__-concurrency"
+      preference="sync.concurrency"
+      min="1"
+      max="10"
+      style="width: 80px"
+    ></html:input>
+    <html:label style="margin-left: 5px">files (文件)</html:label>
+  </hbox>
 </groupbox>
 <vbox>
   <html:label

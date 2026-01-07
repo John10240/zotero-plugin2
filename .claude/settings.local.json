@@ -10,7 +10,9 @@
       "Bash(git tag:*)",
       "Bash(npm run lint:fix:*)",
       "Bash(npm run lint:check:*)",
-      "Bash(npm run bump:*)"
+      "Bash(npm run bump:*)",
+      "Bash(ls:*)",
+      "Bash(gh run list:*)"
     ]
   }
 }

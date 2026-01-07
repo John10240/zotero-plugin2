@@ -59,10 +59,57 @@ export class SyncManager {
   private isSyncing: boolean = false;
   private static readonly METADATA_FILE_KEY = ".zotero-sync-metadata.json";
   private hasCloudMetadata: boolean = false; // Track if cloud has sync records
+  private static readonly DEFAULT_CONCURRENCY = 3; // Default concurrent operations
 
   constructor() {
     this.s3Manager = new S3Manager();
     this.metadataManager = new SyncMetadataManager();
+  }
+
+  /**
+   * Execute operations concurrently with a limit
+   */
+  private async executeConcurrently<T>(
+    items: T[],
+    executor: (item: T) => Promise<boolean>,
+    onProgress: (completed: number, total: number, item: T) => void,
+    concurrency: number = SyncManager.DEFAULT_CONCURRENCY,
+  ): Promise<{ completed: number; failed: number }> {
+    let completed = 0;
+    let failed = 0;
+    const total = items.length;
+
+    // Process items in batches
+    for (let i = 0; i < items.length; i += concurrency) {
+      const batch = items.slice(i, i + concurrency);
+
+      const results = await Promise.allSettled(
+        batch.map(async (item) => {
+          try {
+            const success = await executor(item);
+            return { success, item };
+          } catch (error) {
+            ztoolkit.log(`Error executing operation:`, error);
+            return { success: false, item };
+          }
+        }),
+      );
+
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          if (result.value.success) {
+            completed++;
+          } else {
+            failed++;
+          }
+          onProgress(completed + failed, total, result.value.item);
+        } else {
+          failed++;
+        }
+      }
+    }
+
+    return { completed, failed };
   }
 
   /**
@@ -1371,44 +1418,69 @@ export class SyncManager {
         operations.deleteLocal.length +
         operations.deleteRemote.length;
 
-      // Execute uploads
-      for (const op of operations.upload) {
+      // Get concurrency setting from preferences
+      const concurrency =
+        (getPref("sync.concurrency") as number) ||
+        SyncManager.DEFAULT_CONCURRENCY;
+
+      ztoolkit.log(`使用并发数: ${concurrency}`);
+
+      // Execute uploads concurrently
+      if (operations.upload.length > 0) {
         progressWindow.changeLine({
-          text: `上传: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
+          text: `正在上传 ${operations.upload.length} 个文件...`,
           type: "default",
-          progress: 15 + (completed / totalToSync) * 70,
+          progress: 15,
         });
 
-        const success = await this.executeUpload(op);
-        if (success) {
-          completed++;
-        } else {
-          failed++;
-        }
+        const uploadResults = await this.executeConcurrently(
+          operations.upload,
+          (op) => this.executeUpload(op),
+          (current, total, op) => {
+            progressWindow.changeLine({
+              text: `上传: ${op.attachmentKey} (${current}/${total})`,
+              type: "default",
+              progress: 15 + (current / totalToSync) * 35,
+            });
+          },
+          concurrency,
+        );
+
+        completed += uploadResults.completed;
+        failed += uploadResults.failed;
       }
 
-      // Execute downloads
-      for (const op of operations.download) {
+      // Execute downloads concurrently
+      if (operations.download.length > 0) {
         progressWindow.changeLine({
-          text: `下载: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
+          text: `正在下载 ${operations.download.length} 个文件...`,
           type: "default",
-          progress: 15 + (completed / totalToSync) * 70,
+          progress: 15 + (completed / totalToSync) * 35,
         });
 
-        const success = await this.executeDownload(op);
-        if (success) {
-          completed++;
-        } else {
-          failed++;
-        }
+        const downloadResults = await this.executeConcurrently(
+          operations.download,
+          (op) => this.executeDownload(op),
+          (current, total, op) => {
+            progressWindow.changeLine({
+              text: `下载: ${op.attachmentKey} (${current}/${total})`,
+              type: "default",
+              progress: 15 + ((completed + current) / totalToSync) * 35,
+            });
+          },
+          concurrency,
+        );
+
+        completed += downloadResults.completed;
+        failed += downloadResults.failed;
       }
 
-      // Execute local deletes
+      // Execute local deletes (usually fast, keep serial)
       for (const op of operations.deleteLocal) {
         progressWindow.changeLine({
           text: `删除本地: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
           type: "default",
-          progress: 15 + (completed / totalToSync) * 70,
+          progress: 50 + (completed / totalToSync) * 20,
         });
 
         const success = await this.executeDeleteLocal(op);
@@ -1419,12 +1491,12 @@ export class SyncManager {
         }
       }
 
-      // Execute remote deletes
+      // Execute remote deletes (usually fast, keep serial)
       for (const op of operations.deleteRemote) {
         progressWindow.changeLine({
           text: `删除远程: ${op.attachmentKey} (${completed + 1}/${totalToSync})`,
           type: "default",
-          progress: 15 + (completed / totalToSync) * 70,
+          progress: 70 + (completed / totalToSync) * 15,
         });
 
         const success = await this.executeDeleteRemote(op);
