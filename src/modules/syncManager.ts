@@ -362,6 +362,7 @@ export class SyncManager {
             height: 400,
             centerscreen: true,
             resizable: false,
+            alwaysRaised: true,
           });
 
         ztoolkit.log("对话框已创建", dialogWindow.window ? "窗口存在" : "窗口不存在");
@@ -371,6 +372,8 @@ export class SyncManager {
           handleClose("cancel");
           return;
         }
+
+        ztoolkit.log("准备添加 unload 事件监听器, 当前 isResolved:", isResolved);
 
         // 监听窗口 unload 事件作为后备
         dialogWindow.window.addEventListener("unload", () => {
@@ -385,6 +388,8 @@ export class SyncManager {
             }
           }, 200); // 增加延迟到 200ms，确保按钮点击有足够时间处理
         });
+
+        ztoolkit.log("unload 事件监听器已添加，对话框等待用户操作");
       } catch (error) {
         ztoolkit.log("创建对话框失败:", error);
         handleClose("cancel");
@@ -1410,14 +1415,18 @@ export class SyncManager {
           progress: 10,
         });
 
-        // 短暂延迟让用户看到提示，然后关闭进度窗口
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // 延迟让用户看到提示，然后关闭进度窗口
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
         // 关闭进度窗口
-        progressWindow.startCloseTimer(100);
+        ztoolkit.log("开始关闭进度窗口");
+        progressWindow.startCloseTimer(10);
 
-        // 再延迟一下，确保进度窗口已关闭
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // 等待更长时间，确保窗口完全关闭
+        ztoolkit.log("等待进度窗口完全关闭");
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        ztoolkit.log("进度窗口应该已关闭，准备显示策略对话框");
 
         const strategy = await this.showFirstSyncDialog(localCount, remoteCount);
 
@@ -1425,6 +1434,7 @@ export class SyncManager {
 
         if (strategy === "cancel") {
           // 用户取消，不显示进度窗口，直接返回
+          ztoolkit.log("用户取消同步");
           this.isSyncing = false;
           return;
         }
@@ -1938,6 +1948,7 @@ export class SyncManager {
             height: 300,
             centerscreen: true,
             resizable: false,
+            alwaysRaised: true,
           });
 
         ztoolkit.log("冲突对话框已创建", dialogWindow.window ? "窗口存在" : "窗口不存在");
