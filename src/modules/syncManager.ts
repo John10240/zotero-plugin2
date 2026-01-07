@@ -158,6 +158,133 @@ export class SyncManager {
   }
 
   /**
+   * Show first-time sync strategy dialog
+   * @returns "upload-all" | "download-all" | "merge" | "cancel"
+   */
+  private async showFirstSyncDialog(
+    localCount: number,
+    remoteCount: number,
+  ): Promise<"upload-all" | "download-all" | "merge" | "cancel"> {
+    return new Promise((resolve) => {
+      const dialogData: { [key: string | number | symbol]: any } = {
+        resolution: null,
+      };
+
+      const dialogWindow = new ztoolkit.Dialog(4, 1)
+        .setDialogData(dialogData)
+        .addCell(0, 0, {
+          tag: "h2",
+          properties: {
+            innerHTML: "首次同步到新存储桶",
+          },
+        })
+        .addCell(1, 0, {
+          tag: "div",
+          properties: {
+            innerHTML: `检测到这是首次同步到此存储桶。<br><br>本地有 <b>${localCount}</b> 个文件，远程有 <b>${remoteCount}</b> 个文件。<br><br>请选择同步策略：`,
+          },
+        })
+        .addCell(2, 0, {
+          tag: "div",
+          styles: {
+            marginTop: "10px",
+            marginBottom: "10px",
+            padding: "10px",
+            backgroundColor: "#fff3cd",
+            borderLeft: "4px solid #ffc107",
+          },
+          properties: {
+            innerHTML: `⚠️ <b>重要提示</b>：<br>
+            • 上传到云端：会覆盖云端的同名文件<br>
+            • 从云端下载：会覆盖本地的同名文件<br>
+            • 合并：保留双方文件，但可能产生冲突`,
+          },
+        })
+        .addCell(3, 0, {
+          tag: "div",
+          styles: {
+            display: "flex",
+            gap: "10px",
+            justifyContent: "center",
+            marginTop: "20px",
+          },
+          children: [
+            {
+              tag: "button",
+              properties: {
+                innerHTML: "上传到云端",
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: () => {
+                    dialogData.resolution = "upload-all";
+                    dialogWindow.window?.close();
+                  },
+                },
+              ],
+            },
+            {
+              tag: "button",
+              properties: {
+                innerHTML: "从云端下载",
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: () => {
+                    dialogData.resolution = "download-all";
+                    dialogWindow.window?.close();
+                  },
+                },
+              ],
+            },
+            {
+              tag: "button",
+              properties: {
+                innerHTML: "合并（推荐）",
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: () => {
+                    dialogData.resolution = "merge";
+                    dialogWindow.window?.close();
+                  },
+                },
+              ],
+            },
+            {
+              tag: "button",
+              properties: {
+                innerHTML: "取消",
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: () => {
+                    dialogData.resolution = "cancel";
+                    dialogWindow.window?.close();
+                  },
+                },
+              ],
+            },
+          ],
+        })
+        .open("首次同步策略选择", {
+          width: 600,
+          height: 350,
+          centerscreen: true,
+          resizable: false,
+        });
+
+      dialogWindow.window?.addEventListener("unload", () => {
+        resolve(dialogData.resolution || "cancel");
+      });
+    });
+  }
+
+  /**
    * Compare local and remote files and determine sync operations
    */
   private async compareFilesAndDetermineSyncOperations(
@@ -295,6 +422,27 @@ export class SyncManager {
     }
 
     ztoolkit.log("=== 文件分析完成 ===");
+
+    // Check if this is first-time sync with data on both sides
+    if (!this.hasCloudMetadata) {
+      const hasLocalFiles = operations.upload.length > 0 || localFiles.size > 0;
+      const hasRemoteFiles = operations.download.length > 0 || remoteFilesMap.size > 0;
+
+      if (hasLocalFiles && hasRemoteFiles) {
+        ztoolkit.log("检测到首次同步且本地和远程都有数据");
+        ztoolkit.log(`  本地文件数: ${localFiles.size}`);
+        ztoolkit.log(`  远程文件数: ${remoteFilesMap.size}`);
+
+        // Store the detection result for use in syncAttachments
+        // We'll handle the dialog there
+        operations.conflicts.push({
+          type: "conflict",
+          attachmentKey: "__FIRST_SYNC_STRATEGY_NEEDED__",
+          localHash: localFiles.size.toString(),
+          remoteETag: remoteFilesMap.size.toString(),
+        });
+      }
+    }
 
     return operations;
   }
@@ -1123,6 +1271,56 @@ export class SyncManager {
 
         this.isSyncing = false;
         return;
+      }
+
+      // Check for first-time sync scenario
+      const firstSyncMarker = operations.conflicts.find(
+        (c) => c.attachmentKey === "__FIRST_SYNC_STRATEGY_NEEDED__",
+      );
+
+      if (firstSyncMarker) {
+        // Remove the marker from conflicts
+        operations.conflicts = operations.conflicts.filter(
+          (c) => c.attachmentKey !== "__FIRST_SYNC_STRATEGY_NEEDED__",
+        );
+
+        const localCount = parseInt(firstSyncMarker.localHash || "0");
+        const remoteCount = parseInt(firstSyncMarker.remoteETag || "0");
+
+        progressWindow.changeLine({
+          text: "首次同步到新存储桶，请选择同步策略...",
+          type: "default",
+          progress: 10,
+        });
+
+        const strategy = await this.showFirstSyncDialog(localCount, remoteCount);
+
+        if (strategy === "cancel") {
+          progressWindow.changeLine({
+            text: "用户取消同步",
+            type: "default",
+            progress: 0,
+          });
+          progressWindow.startCloseTimer(2000);
+          this.isSyncing = false;
+          return;
+        }
+
+        if (strategy === "upload-all") {
+          // Upload local, don't download remote
+          ztoolkit.log("用户选择：上传到云端");
+          operations.download = [];
+          operations.deleteRemote = [];
+        } else if (strategy === "download-all") {
+          // Download remote, don't upload local
+          ztoolkit.log("用户选择：从云端下载");
+          operations.upload = [];
+          operations.deleteLocal = [];
+        } else if (strategy === "merge") {
+          // Keep both upload and download (default behavior)
+          ztoolkit.log("用户选择：合并");
+          // No changes needed
+        }
       }
 
       // Handle conflicts
