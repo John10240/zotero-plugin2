@@ -1299,7 +1299,7 @@ export class SyncManager {
 
   public async syncAttachments(): Promise<void> {
     ztoolkit.log("=== syncAttachments 开始执行 ===");
-    ztoolkit.log("代码版本: 0.1.23-with-first-sync-strategy");
+    ztoolkit.log("代码版本: 0.1.26");
 
     if (this.isSyncing) {
       ztoolkit.log("Sync already in progress");
@@ -1325,7 +1325,7 @@ export class SyncManager {
     const isIncremental = this.shouldUseIncrementalSync();
     const syncType = isIncremental ? "增量同步" : "完整同步";
 
-    const progressWindow = new ztoolkit.ProgressWindow(
+    let progressWindow = new ztoolkit.ProgressWindow(
       `S3 云同步 - ${syncType}`,
     )
       .createLine({
@@ -1410,30 +1410,36 @@ export class SyncManager {
           progress: 10,
         });
 
-        // 延迟一下让用户看到提示
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // 短暂延迟让用户看到提示，然后关闭进度窗口
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // 关闭进度窗口
+        progressWindow.startCloseTimer(100);
+
+        // 再延迟一下，确保进度窗口已关闭
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         const strategy = await this.showFirstSyncDialog(localCount, remoteCount);
 
         ztoolkit.log("策略对话框返回结果:", strategy);
 
         if (strategy === "cancel") {
-          progressWindow.changeLine({
-            text: "用户取消同步",
-            type: "default",
-            progress: 0,
-          });
-          progressWindow.startCloseTimer(2000);
+          // 用户取消，不显示进度窗口，直接返回
           this.isSyncing = false;
           return;
         }
 
-        // 用户选择了策略，更新进度窗口
-        progressWindow.changeLine({
-          text: `已选择策略，继续同步...`,
-          type: "default",
-          progress: 15,
-        });
+        // 用户选择了策略，重新创建进度窗口
+        ztoolkit.log("用户选择了策略，重新创建进度窗口");
+        progressWindow = new ztoolkit.ProgressWindow(
+          `S3 云同步 - ${syncType}`,
+        )
+          .createLine({
+            text: `已选择策略，开始同步...`,
+            type: "default",
+            progress: 15,
+          })
+          .show();
 
         if (strategy === "upload-all") {
           // Upload local, don't download remote
@@ -1460,24 +1466,35 @@ export class SyncManager {
       };
       if (operations.conflicts.length > 0) {
         progressWindow.changeLine({
-          text: `发现 ${operations.conflicts.length} 个冲突，正在解决...`,
+          text: `发现 ${operations.conflicts.length} 个冲突，请选择处理方式...`,
           type: "default",
           progress: 10,
         });
+
+        // 延迟并关闭进度窗口
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        progressWindow.startCloseTimer(100);
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         resolvedConflicts = await this.resolveConflicts(operations.conflicts);
 
         if (resolvedConflicts.skip.length === operations.conflicts.length) {
           // User cancelled
-          progressWindow.changeLine({
-            text: "用户取消同步",
-            type: "default",
-            progress: 0,
-          });
-          progressWindow.startCloseTimer(2000);
           this.isSyncing = false;
           return;
         }
+
+        // 重新创建进度窗口
+        ztoolkit.log("冲突已解决，重新创建进度窗口");
+        progressWindow = new ztoolkit.ProgressWindow(
+          `S3 云同步 - ${syncType}`,
+        )
+          .createLine({
+            text: `冲突已解决，开始同步...`,
+            type: "default",
+            progress: 15,
+          })
+          .show();
 
         // Add resolved conflicts to respective operation lists
         operations.upload.push(...resolvedConflicts.upload);
