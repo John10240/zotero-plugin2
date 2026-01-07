@@ -220,9 +220,12 @@ export class SyncManager {
       let isResolved = false; // 防止重复 resolve
 
       const handleClose = (resolution: "upload-all" | "download-all" | "merge" | "cancel") => {
-        if (isResolved) return;
+        if (isResolved) {
+          ztoolkit.log("handleClose 被调用但已 resolved，忽略。resolution:", resolution);
+          return;
+        }
         isResolved = true;
-        ztoolkit.log("对话框关闭，选择：", resolution);
+        ztoolkit.log("handleClose: 对话框关闭，选择：", resolution);
         resolve(resolution);
       };
 
@@ -275,12 +278,11 @@ export class SyncManager {
               {
                 type: "click",
                 listener: () => {
-                  ztoolkit.log("用户选择：上传到云端");
+                  ztoolkit.log("用户点击：上传到云端");
                   dialogData.resolution = "upload-all";
-                  // 先关闭窗口再 resolve，避免竞争条件
                   dialogWindow.window?.close();
-                  // 延迟确保窗口关闭完成
-                  setTimeout(() => handleClose("upload-all"), 50);
+                  // 立即处理，不延迟
+                  handleClose("upload-all");
                 },
               },
             ],
@@ -300,10 +302,10 @@ export class SyncManager {
               {
                 type: "click",
                 listener: () => {
-                  ztoolkit.log("用户选择：从云端下载");
+                  ztoolkit.log("用户点击：从云端下载");
                   dialogData.resolution = "download-all";
                   dialogWindow.window?.close();
-                  setTimeout(() => handleClose("download-all"), 50);
+                  handleClose("download-all");
                 },
               },
             ],
@@ -324,10 +326,10 @@ export class SyncManager {
               {
                 type: "click",
                 listener: () => {
-                  ztoolkit.log("用户选择：合并");
+                  ztoolkit.log("用户点击：合并");
                   dialogData.resolution = "merge";
                   dialogWindow.window?.close();
-                  setTimeout(() => handleClose("merge"), 50);
+                  handleClose("merge");
                 },
               },
             ],
@@ -347,10 +349,10 @@ export class SyncManager {
               {
                 type: "click",
                 listener: () => {
-                  ztoolkit.log("用户选择：取消");
+                  ztoolkit.log("用户点击：取消");
                   dialogData.resolution = "cancel";
                   dialogWindow.window?.close();
-                  setTimeout(() => handleClose("cancel"), 50);
+                  handleClose("cancel");
                 },
               },
             ],
@@ -372,12 +374,16 @@ export class SyncManager {
 
         // 监听窗口 unload 事件作为后备
         dialogWindow.window.addEventListener("unload", () => {
-          // 如果还没有 resolve，使用 dialogData.resolution 或默认 cancel
+          ztoolkit.log("unload 事件触发, dialogData.resolution:", dialogData.resolution, "isResolved:", isResolved);
+          // 如果还没有 resolve，延迟处理，给按钮点击事件足够的时间
           setTimeout(() => {
             if (!isResolved) {
+              ztoolkit.log("unload 后备处理: 使用", dialogData.resolution || "cancel");
               handleClose(dialogData.resolution || "cancel");
+            } else {
+              ztoolkit.log("unload 后备处理: 已经 resolved，忽略");
             }
-          }, 100);
+          }, 200); // 增加延迟到 200ms，确保按钮点击有足够时间处理
         });
       } catch (error) {
         ztoolkit.log("创建对话框失败:", error);
@@ -1396,13 +1402,20 @@ export class SyncManager {
         const localCount = parseInt(firstSyncMarker.localHash || "0");
         const remoteCount = parseInt(firstSyncMarker.remoteETag || "0");
 
+        // 关闭进度窗口，避免与策略对话框冲突
+        ztoolkit.log("关闭进度窗口，准备显示策略对话框");
         progressWindow.changeLine({
           text: "首次同步到新存储桶，请选择同步策略...",
           type: "default",
           progress: 10,
         });
 
+        // 延迟一下让用户看到提示
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         const strategy = await this.showFirstSyncDialog(localCount, remoteCount);
+
+        ztoolkit.log("策略对话框返回结果:", strategy);
 
         if (strategy === "cancel") {
           progressWindow.changeLine({
@@ -1414,6 +1427,13 @@ export class SyncManager {
           this.isSyncing = false;
           return;
         }
+
+        // 用户选择了策略，更新进度窗口
+        progressWindow.changeLine({
+          text: `已选择策略，继续同步...`,
+          type: "default",
+          progress: 15,
+        });
 
         if (strategy === "upload-all") {
           // Upload local, don't download remote
@@ -1801,9 +1821,12 @@ export class SyncManager {
       let isResolved = false; // 防止重复 resolve
 
       const handleClose = (resolution: "upload" | "download" | "cancel") => {
-        if (isResolved) return;
+        if (isResolved) {
+          ztoolkit.log("冲突对话框 handleClose 被调用但已 resolved，忽略。resolution:", resolution);
+          return;
+        }
         isResolved = true;
-        ztoolkit.log("冲突对话框关闭，选择：", resolution);
+        ztoolkit.log("冲突对话框 handleClose: 对话框关闭，选择：", resolution);
         resolve(resolution);
       };
 
@@ -1839,10 +1862,10 @@ export class SyncManager {
               {
                 type: "click",
                 listener: () => {
-                  ztoolkit.log("用户选择：使用本地覆盖云端");
+                  ztoolkit.log("用户点击：使用本地覆盖云端");
                   dialogData.resolution = "upload";
                   dialogWindow.window?.close();
-                  setTimeout(() => handleClose("upload"), 50);
+                  handleClose("upload");
                 },
               },
             ],
@@ -1862,10 +1885,10 @@ export class SyncManager {
               {
                 type: "click",
                 listener: () => {
-                  ztoolkit.log("用户选择：使用云端覆盖本地");
+                  ztoolkit.log("用户点击：使用云端覆盖本地");
                   dialogData.resolution = "download";
                   dialogWindow.window?.close();
-                  setTimeout(() => handleClose("download"), 50);
+                  handleClose("download");
                 },
               },
             ],
@@ -1885,10 +1908,10 @@ export class SyncManager {
               {
                 type: "click",
                 listener: () => {
-                  ztoolkit.log("用户选择：取消同步");
+                  ztoolkit.log("用户点击：取消同步");
                   dialogData.resolution = "cancel";
                   dialogWindow.window?.close();
-                  setTimeout(() => handleClose("cancel"), 50);
+                  handleClose("cancel");
                 },
               },
             ],
@@ -1910,12 +1933,16 @@ export class SyncManager {
 
         // 监听窗口 unload 事件作为后备
         dialogWindow.window.addEventListener("unload", () => {
-          // 如果还没有 resolve，使用 dialogData.resolution 或默认 cancel
+          ztoolkit.log("冲突对话框 unload 事件触发, dialogData.resolution:", dialogData.resolution, "isResolved:", isResolved);
+          // 如果还没有 resolve，延迟处理，给按钮点击事件足够的时间
           setTimeout(() => {
             if (!isResolved) {
+              ztoolkit.log("冲突对话框 unload 后备处理: 使用", dialogData.resolution || "cancel");
               handleClose(dialogData.resolution || "cancel");
+            } else {
+              ztoolkit.log("冲突对话框 unload 后备处理: 已经 resolved，忽略");
             }
-          }, 100);
+          }, 200); // 增加延迟到 200ms
         });
       } catch (error) {
         ztoolkit.log("创建冲突对话框失败:", error);
