@@ -57,10 +57,104 @@ export class SyncManager {
   private metadataManager: SyncMetadataManager;
   private syncQueue: SyncItem[] = [];
   private isSyncing: boolean = false;
+  private static readonly METADATA_FILE_KEY = ".zotero-sync-metadata.json";
+  private hasCloudMetadata: boolean = false; // Track if cloud has sync records
 
   constructor() {
     this.s3Manager = new S3Manager();
     this.metadataManager = new SyncMetadataManager();
+  }
+
+  /**
+   * Get the metadata file key in S3
+   */
+  private getMetadataS3Key(): string {
+    const prefix = (getPref("s3.prefix") as string) || "zotero-attachments";
+    return `${prefix}/${SyncManager.METADATA_FILE_KEY}`;
+  }
+
+  /**
+   * Generate a unique bucket identifier
+   */
+  private getBucketId(): string {
+    const endpoint = (getPref("s3.endpoint") as string) || "";
+    const bucketName = (getPref("s3.bucketName") as string) || "";
+    return `${endpoint}/${bucketName}`;
+  }
+
+  /**
+   * Download metadata from S3
+   */
+  private async downloadCloudMetadata(): Promise<boolean> {
+    try {
+      const metadataKey = this.getMetadataS3Key();
+      ztoolkit.log(`尝试下载云端元数据: ${metadataKey}`);
+
+      const blob = await this.s3Manager.downloadFile(metadataKey);
+
+      if (!blob) {
+        ztoolkit.log("云端元数据不存在（首次同步或新存储桶）");
+        this.hasCloudMetadata = false;
+        return false;
+      }
+
+      const cloudMetadata = await this.metadataManager.loadFromBlob(blob);
+      const currentBucketId = this.getBucketId();
+
+      ztoolkit.log(`云端元数据加载成功: ${Object.keys(cloudMetadata.files).length} 个文件记录`);
+
+      // Check if we're switching buckets
+      const localBucketId = this.metadataManager.getBucketId();
+      if (localBucketId && localBucketId !== currentBucketId) {
+        ztoolkit.log(`检测到切换存储桶:`);
+        ztoolkit.log(`  本地: ${localBucketId}`);
+        ztoolkit.log(`  当前: ${currentBucketId}`);
+        ztoolkit.log(`使用云端元数据替换本地元数据`);
+        // Switching buckets - use cloud metadata as source of truth
+        cloudMetadata.bucketId = currentBucketId;
+        this.metadataManager.replaceWithCloudMetadata(cloudMetadata);
+      } else {
+        // Same bucket - merge metadata
+        cloudMetadata.bucketId = currentBucketId;
+        this.metadataManager.mergeWithCloudMetadata(cloudMetadata);
+      }
+
+      this.hasCloudMetadata = true;
+      return true;
+    } catch (error) {
+      ztoolkit.log("下载云端元数据失败:", error);
+      this.hasCloudMetadata = false;
+      return false;
+    }
+  }
+
+  /**
+   * Upload metadata to S3
+   */
+  private async uploadCloudMetadata(): Promise<boolean> {
+    try {
+      const metadataKey = this.getMetadataS3Key();
+      const currentBucketId = this.getBucketId();
+
+      // Set bucket ID before uploading
+      this.metadataManager.setBucketId(currentBucketId);
+
+      const blob = this.metadataManager.toBlob();
+      ztoolkit.log(`上传云端元数据到: ${metadataKey}`);
+
+      const success = await this.s3Manager.uploadFile(blob, metadataKey);
+
+      if (success) {
+        ztoolkit.log("云端元数据上传成功");
+      } else {
+        ztoolkit.log("云端元数据上传失败");
+      }
+
+      return success;
+    } catch (error) {
+      ztoolkit.log("上传云端元数据失败:", error);
+      return false;
+    }
   }
 
   /**
@@ -168,6 +262,7 @@ export class SyncManager {
           local,
           remote,
           metadata,
+          this.hasCloudMetadata,
         );
 
         ztoolkit.log(`  - 决策结果: ${operation.type}`);
@@ -332,12 +427,14 @@ export class SyncManager {
   /**
    * Three-way merge decision engine
    * Determines what operation to perform based on local, remote, and last sync state
+   * @param hasCloudMetadata - Whether cloud has sync metadata (false for new/empty buckets)
    */
   private async determineOperation(
     attachmentKey: string,
     local: { hash: string; filePath: string; modTime: number } | undefined,
     remote: S3FileMetadata | undefined,
     metadata: any,
+    hasCloudMetadata: boolean,
   ): Promise<SyncOperation> {
     const lastSyncHash = metadata?.lastSyncHash;
     const lastSyncTime = metadata?.lastSyncTime || 0;
@@ -517,8 +614,23 @@ export class SyncManager {
         };
       }
 
-      // Never synced before - upload
+      // Check if cloud has any sync records
+      if (!hasCloudMetadata) {
+        // New bucket or first sync - upload local file
+        ztoolkit.log(
+          `云端无同步记录，本地文件需要上传: ${attachmentKey}`,
+        );
+        return {
+          type: "upload",
+          attachmentKey,
+          localHash: local.hash,
+          filePath: local.filePath,
+        };
+      }
+
+      // Cloud has metadata - check if file was synced before
       if (!metadata || lastSyncTime === 0) {
+        // Never synced before - upload
         return {
           type: "upload",
           attachmentKey,
@@ -528,6 +640,9 @@ export class SyncManager {
       }
 
       // Was synced before but deleted remotely - delete local
+      ztoolkit.log(
+        `文件曾同步过但已从云端删除: ${attachmentKey}，删除本地`,
+      );
       return {
         type: "delete-local",
         attachmentKey,
@@ -539,8 +654,23 @@ export class SyncManager {
 
     // Case 4: File exists only remotely
     if (!local && remote) {
-      // Never synced before or new file on remote - download
+      // Check if cloud has any sync records
+      if (!hasCloudMetadata) {
+        // New bucket - this shouldn't happen, but download anyway
+        ztoolkit.log(
+          `云端无同步记录但存在远程文件，下载: ${attachmentKey}`,
+        );
+        return {
+          type: "download",
+          attachmentKey,
+          remoteETag: remote.etag,
+          remoteModTime: remote.lastModified,
+        };
+      }
+
+      // Cloud has metadata - check if file was synced before
       if (!metadata || lastSyncTime === 0) {
+        // Never synced before or new file on remote - download
         return {
           type: "download",
           attachmentKey,
@@ -550,6 +680,9 @@ export class SyncManager {
       }
 
       // Was synced before but deleted locally - delete remote
+      ztoolkit.log(
+        `文件曾同步过但已从本地删除: ${attachmentKey}，删除远程`,
+      );
       return {
         type: "delete-remote",
         attachmentKey,
@@ -903,7 +1036,7 @@ export class SyncManager {
 
   public async syncAttachments(): Promise<void> {
     ztoolkit.log("=== syncAttachments 开始执行 ===");
-    ztoolkit.log("代码版本: 0.1.20-debug");
+    ztoolkit.log("代码版本: 0.1.22-cloud-metadata");
 
     if (this.isSyncing) {
       ztoolkit.log("Sync already in progress");
@@ -933,13 +1066,22 @@ export class SyncManager {
       `S3 云同步 - ${syncType}`,
     )
       .createLine({
-        text: "正在分析本地和远程文件...",
+        text: "正在下载云端同步记录...",
         type: "default",
         progress: 0,
       })
       .show();
 
     try {
+      // Download cloud metadata first
+      progressWindow.changeLine({
+        text: "正在下载云端同步记录...",
+        type: "default",
+        progress: 3,
+      });
+
+      await this.downloadCloudMetadata();
+
       // Analyze local and remote files
       progressWindow.changeLine({
         text: "正在分析文件差异...",
@@ -1120,6 +1262,15 @@ export class SyncManager {
       if (!isIncremental) {
         this.metadataManager.updateLastFullSync();
       }
+
+      // Upload metadata to cloud
+      progressWindow.changeLine({
+        text: "正在上传同步记录到云端...",
+        type: "default",
+        progress: 95,
+      });
+
+      await this.uploadCloudMetadata();
 
       // Clear sync status
       addon.data.syncStatus = { isSyncing: false };

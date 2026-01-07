@@ -18,6 +18,7 @@ export interface SyncMetadataStore {
   };
   lastFullSync: number; // Last full sync timestamp
   version: number; // Metadata format version
+  bucketId?: string; // Identifier for the S3 bucket (endpoint + bucket name)
 }
 
 export class SyncMetadataManager {
@@ -199,5 +200,141 @@ export class SyncMetadataManager {
       oldestSync: syncTimes.length > 0 ? Math.min(...syncTimes) : 0,
       newestSync: syncTimes.length > 0 ? Math.max(...syncTimes) : 0,
     };
+  }
+
+  /**
+   * Serialize metadata to JSON string for cloud storage
+   */
+  public serializeToJson(): string {
+    return JSON.stringify(this.metadata, null, 2);
+  }
+
+  /**
+   * Create a Blob from metadata for uploading to S3
+   */
+  public toBlob(): Blob {
+    const json = this.serializeToJson();
+    return new Blob([json], { type: "application/json" });
+  }
+
+  /**
+   * Load metadata from JSON string (from cloud)
+   */
+  public loadFromJson(json: string): SyncMetadataStore {
+    try {
+      const parsed = JSON.parse(json) as SyncMetadataStore;
+
+      // Validate version
+      if (parsed.version === SyncMetadataManager.METADATA_VERSION) {
+        return parsed;
+      }
+
+      ztoolkit.log("Cloud metadata version mismatch");
+      return this.createEmptyMetadata();
+    } catch (error) {
+      ztoolkit.log("Error parsing cloud metadata:", error);
+      return this.createEmptyMetadata();
+    }
+  }
+
+  /**
+   * Load metadata from a Blob (downloaded from S3)
+   */
+  public async loadFromBlob(blob: Blob): Promise<SyncMetadataStore> {
+    try {
+      const text = await blob.text();
+      return this.loadFromJson(text);
+    } catch (error) {
+      ztoolkit.log("Error reading metadata blob:", error);
+      return this.createEmptyMetadata();
+    }
+  }
+
+  /**
+   * Merge cloud metadata with local metadata
+   * Cloud metadata takes precedence for file records
+   * But preserves local-only records that don't exist in cloud
+   */
+  public mergeWithCloudMetadata(cloudMetadata: SyncMetadataStore): void {
+    ztoolkit.log("Merging cloud metadata with local metadata");
+    ztoolkit.log(`  Cloud files: ${Object.keys(cloudMetadata.files).length}`);
+    ztoolkit.log(`  Local files: ${Object.keys(this.metadata.files).length}`);
+    ztoolkit.log(`  Cloud lastFullSync: ${cloudMetadata.lastFullSync}`);
+    ztoolkit.log(`  Local lastFullSync: ${this.metadata.lastFullSync}`);
+
+    // Use cloud metadata as the base
+    const mergedFiles: { [key: string]: FileMetadata } = {
+      ...cloudMetadata.files,
+    };
+
+    // Keep local-only records that don't exist in cloud
+    // But only if they're newer than the cloud's last full sync
+    for (const [key, localMeta] of Object.entries(this.metadata.files)) {
+      if (!cloudMetadata.files[key]) {
+        // This file only exists locally
+        // If it was synced after the cloud's last full sync, keep it
+        if (
+          localMeta.lastSyncTime > cloudMetadata.lastFullSync ||
+          cloudMetadata.lastFullSync === 0
+        ) {
+          mergedFiles[key] = localMeta;
+        }
+      }
+    }
+
+    this.metadata = {
+      files: mergedFiles,
+      lastFullSync: Math.max(
+        cloudMetadata.lastFullSync,
+        this.metadata.lastFullSync,
+      ),
+      version: SyncMetadataManager.METADATA_VERSION,
+      bucketId: cloudMetadata.bucketId,
+    };
+
+    this.saveMetadata();
+    ztoolkit.log(`  Merged files: ${Object.keys(this.metadata.files).length}`);
+  }
+
+  /**
+   * Set the bucket identifier for this metadata
+   */
+  public setBucketId(bucketId: string): void {
+    this.metadata.bucketId = bucketId;
+    this.saveMetadata();
+  }
+
+  /**
+   * Get the bucket identifier
+   */
+  public getBucketId(): string | undefined {
+    return this.metadata.bucketId;
+  }
+
+  /**
+   * Check if current bucket matches the stored bucket ID
+   */
+  public isSameBucket(bucketId: string): boolean {
+    return this.metadata.bucketId === bucketId;
+  }
+
+  /**
+   * Create empty metadata structure
+   */
+  private createEmptyMetadata(): SyncMetadataStore {
+    return {
+      files: {},
+      lastFullSync: 0,
+      version: SyncMetadataManager.METADATA_VERSION,
+    };
+  }
+
+  /**
+   * Replace current metadata with cloud metadata
+   * Used when switching to a different bucket
+   */
+  public replaceWithCloudMetadata(cloudMetadata: SyncMetadataStore): void {
+    this.metadata = cloudMetadata;
+    this.saveMetadata();
   }
 }
