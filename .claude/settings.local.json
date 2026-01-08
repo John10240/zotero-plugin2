@@ -12,7 +12,8 @@
       "Bash(npm run lint:check:*)",
       "Bash(npm run bump:*)",
       "Bash(ls:*)",
-      "Bash(gh run list:*)"
+      "Bash(gh run list:*)",
+      "Bash(dir:*)"
     ]
   }
 }
